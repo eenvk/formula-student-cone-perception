@@ -216,3 +216,64 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# IDEs / Editors
+
+# JetBrains: CLion, PyCharm, IntelliJ
+.idea/
+
+# Visual Studio Code
+.vscode/
+
+# Visual Studio
+.vs/
+
+
+# Python environments
+
+.venv/
+venv/
+env/
+ENV/
+
+
+# Python generated files
+__pycache__/
+*.py[cod]
+
+
+# Dataset
+data/
+datasets/
+
+
+# Deep Learning outputs
+
+runs/
+outputs/
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+
+
+# CMake / C++ builds
+
+cmake-build-*/
+build/
+build-debug/
+build-release/
+
+
+# Operating system files
+
+.DS_Store
+Thumbs.db
+
+
+# Temporary files
+
+*.tmp
+*.temp
