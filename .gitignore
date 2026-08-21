@@ -246,6 +246,7 @@ __pycache__/
 # Dataset
 data/
 datasets/
+dataset/
 
 
 # Deep Learning outputs
