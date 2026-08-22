@@ -110,7 +110,45 @@ def find_dataset_pairs(
 
     return pairs
 
+#
+def find_all_dataset_pairs(
+        dataset_root: str | Path
+) -> list[tuple[Path, Path]]:
+    """
+    Find image-annotation pairs across all FSOCO sub-datasets.
+    """
 
+    dataset_root = Path(dataset_root)
+
+    all_pairs = []
+
+    for subset_dir in dataset_root.iterdir():
+
+        if not subset_dir.is_dir():
+            continue
+
+        image_dir = subset_dir / "img"
+        annotation_dir = subset_dir / "ann"
+
+        if not image_dir.is_dir() or not annotation_dir.is_dir():
+            print(
+                f"[WARNING] Skipping {subset_dir.name}: "
+                f"missing img or ann directory."
+            )
+            continue
+
+        subset_pairs = find_dataset_pairs(
+            image_dir,
+            annotation_dir
+        )
+
+        all_pairs.extend(subset_pairs)
+
+    all_pairs.sort(
+        key=lambda pair: str(pair[0])
+    )
+
+    return all_pairs
 #
 def decode_bitmap(bitmap_data: str) -> np.ndarray:
     """
