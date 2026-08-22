@@ -7,18 +7,7 @@ import tensorflow as tf
 from dataset.dataset_utils import IGNORE_ID, NUM_CLASSES, annotation_to_semantic_mask, find_all_dataset_pairs, resize_mask, train_validation_split
 from segmentation.segmentation_model import build_unet
 
-
-# Training configuration
-
-IMAGE_WIDTH = 256
-IMAGE_HEIGHT = 256
-
-BATCH_SIZE = 4
-EPOCHS = 30
-LEARNING_RATE = 1e-4
-
-VALIDATION_FRACTION = 0.20
-RANDOM_SEED = 42
+from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, BATCH_SIZE, EPOCHS, LEARNING_RATE, VALIDATION_FRACTION, RANDOM_SEED
 
 
 # Project paths
@@ -31,6 +20,30 @@ MODEL_DIR = PROJECT_ROOT / "models"
 
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 
+
+def resize_with_padding(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Resize image and mask while preserving their aspect ratio."""
+
+    original_height, original_width = image.shape[:2]
+
+    scale = min(IMAGE_WIDTH / original_width, IMAGE_HEIGHT / original_height)
+
+    new_width = int(original_width * scale)
+    new_height = int(original_height * scale)
+
+    resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+    resized_mask = cv2.resize(mask, (new_width, new_height), interpolation=cv2.INTER_NEAREST)
+
+    image_output = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)
+    mask_output = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+
+    x_offset = (IMAGE_WIDTH - new_width) // 2
+    y_offset = (IMAGE_HEIGHT - new_height) // 2
+
+    image_output[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_image
+    mask_output[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_mask
+
+    return image_output, mask_output
 
 def load_sample(image_path: Path, annotation_path: Path) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -47,20 +60,11 @@ def load_sample(image_path: Path, annotation_path: Path) -> tuple[np.ndarray, np
     mask = annotation_to_semantic_mask(annotation_path, original_height, original_width)
 
     # OpenCV loads images in BGR format.
-    # Convert the image to RGB before training.
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    # Resize the image using linear interpolation.
-    image = cv2.resize(image, (IMAGE_WIDTH, IMAGE_HEIGHT), interpolation=cv2.INTER_LINEAR)
+    image, mask = resize_with_padding(image, mask)
 
-    # Resize the mask using nearest-neighbor interpolation
-    # to preserve the class identifiers.
-    mask = resize_mask(mask, IMAGE_WIDTH, IMAGE_HEIGHT)
-
-    # Normalize image values from [0, 255] to [0, 1].
     image = image.astype(np.float32) / 255.0
-
-    # Keep the semantic mask as integer class identifiers.
     mask = mask.astype(np.int32)
 
     return image, mask

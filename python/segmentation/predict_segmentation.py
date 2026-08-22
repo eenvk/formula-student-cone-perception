@@ -6,14 +6,10 @@ import numpy as np
 from dataset.dataset_utils import annotation_to_semantic_mask, create_overlay, find_all_dataset_pairs, train_validation_split
 from segmentation.segmentation_model import build_unet
 
+from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, VALIDATION_FRACTION, RANDOM_SEED
 
-IMAGE_WIDTH = 256
-IMAGE_HEIGHT = 256
 
-VALIDATION_FRACTION = 0.20
-RANDOM_SEED = 42
-
-SAMPLE_INDEX = 0
+SAMPLE_INDEX = 1
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

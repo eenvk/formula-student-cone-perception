@@ -42,7 +42,7 @@ def decoder_block(inputs,skip_features,num_filters):
     return x
 
 
-def build_unet(input_shape=(256, 256, 3),num_classes=5):
+def build_unet(input_shape, num_classes):
     """Build a U-Net model for multi-class semantic segmentation."""
 
     inputs = tf.keras.layers.Input(shape=input_shape)
