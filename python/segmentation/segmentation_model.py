@@ -74,8 +74,3 @@ def build_unet(input_shape=(256, 256, 3),num_classes=5):
     model = tf.keras.Model(inputs=inputs,outputs=outputs,name="unet")
 
     return model
-
-
-if __name__ == "__main__":
-    model = build_unet()
-    model.summary()
