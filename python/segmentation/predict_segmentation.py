@@ -19,7 +19,7 @@ from segmentation.segmentation_config import (
 from segmentation.segmentation_model import build_unet
 
 
-SAMPLE_INDEX = 1
+NUM_SAMPLES = 5
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -74,81 +74,61 @@ def main():
 
     # Recreate the same validation split used during training.
     pairs = find_all_dataset_pairs(TRAIN_DATASET_DIR)
-
-    _, validation_pairs = train_validation_split(
-        pairs,
-        validation_fraction=VALIDATION_FRACTION,
-        seed=RANDOM_SEED,
-    )
-
-    image_path, annotation_path = validation_pairs[SAMPLE_INDEX]
-
-    print(f"Image: {image_path.name}")
-
-    # Load the original image.
-    image = cv2.imread(str(image_path))
-
-    if image is None:
-        raise RuntimeError(f"Could not read image: {image_path}")
-
-    original_height, original_width = image.shape[:2]
-
-    # Create the ground-truth semantic mask.
-    ground_truth_mask = annotation_to_semantic_mask(
-        annotation_path,
-        original_height,
-        original_width,
-    )
-
-    # Prepare the image using the same preprocessing used during training.
-    model_input, x_offset, y_offset, new_width, new_height = preprocess_image(image)
+    _, validation_pairs = train_validation_split(pairs, validation_fraction=VALIDATION_FRACTION, seed=RANDOM_SEED)
 
     # Build the same U-Net architecture used during training.
-    model = build_unet(
-        input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3),
-        num_classes=NUM_CLASSES,
-    )
+    model = build_unet(input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), num_classes=NUM_CLASSES)
 
-    # Load the trained weights.
+    # Load the trained weights only once.
     model.load_weights(str(WEIGHTS_PATH))
 
-    # Predict class probabilities for every pixel.
-    prediction = model.predict(model_input, verbose=0)[0]
+    # Run prediction on multiple validation samples.
+    for sample_index in range(NUM_SAMPLES):
+        image_path, annotation_path = validation_pairs[sample_index]
 
-    # Convert probabilities into class identifiers.
-    predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
+        print(f"Sample {sample_index + 1}/{NUM_SAMPLES}: {image_path.name}")
 
-    # Remove the padding added before inference.
-    predicted_mask = predicted_mask[
-                     y_offset:y_offset + new_height,
-                     x_offset:x_offset + new_width,
-                     ]
+        # Load the original image.
+        image = cv2.imread(str(image_path))
 
-    # Restore the predicted mask to the original image resolution.
-    predicted_mask = cv2.resize(
-        predicted_mask,
-        (original_width, original_height),
-        interpolation=cv2.INTER_NEAREST,
-    )
+        if image is None:
+            raise RuntimeError(f"Could not read image: {image_path}")
 
-    # Create visualization overlays.
-    ground_truth_overlay = create_overlay(image, ground_truth_mask)
-    prediction_overlay = create_overlay(image, predicted_mask)
+        original_height, original_width = image.shape[:2]
 
-    # Save the results.
-    cv2.imwrite(str(OUTPUT_DIR / "original.png"), image)
-    cv2.imwrite(
-        str(OUTPUT_DIR / "ground_truth_overlay.png"),
-        ground_truth_overlay,
-    )
-    cv2.imwrite(
-        str(OUTPUT_DIR / "prediction_overlay.png"),
-        prediction_overlay,
-    )
+        # Create the ground-truth semantic mask.
+        ground_truth_mask = annotation_to_semantic_mask(annotation_path, original_height, original_width)
 
-    print("Prediction completed.")
+        # Prepare the image using the same preprocessing used during training.
+        model_input, x_offset, y_offset, new_width, new_height = preprocess_image(image)
+
+        # Predict class probabilities for every pixel.
+        prediction = model.predict(model_input, verbose=0)[0]
+
+        # Convert probabilities into class identifiers.
+        predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
+
+        # Remove the padding added before inference.
+        predicted_mask = predicted_mask[y_offset:y_offset + new_height, x_offset:x_offset + new_width]
+
+        # Restore the predicted mask to the original image resolution.
+        predicted_mask = cv2.resize(predicted_mask, (original_width, original_height), interpolation=cv2.INTER_NEAREST)
+
+        # Create visualization overlays.
+        ground_truth_overlay = create_overlay(image, ground_truth_mask)
+        prediction_overlay = create_overlay(image, predicted_mask)
+
+        # Create a separate folder for each sample.
+        sample_output_dir = OUTPUT_DIR / f"sample_{sample_index + 1}"
+        sample_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save the results.
+        cv2.imwrite(str(sample_output_dir / "original.png"), image)
+        cv2.imwrite(str(sample_output_dir / "ground_truth_overlay.png"), ground_truth_overlay)
+        cv2.imwrite(str(sample_output_dir / "prediction_overlay.png"), prediction_overlay)
+
+    print("Predictions completed.")
     print(f"Results saved in: {OUTPUT_DIR}")
-
 
 if __name__ == "__main__":
     main()
