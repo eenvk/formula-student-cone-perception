@@ -66,33 +66,38 @@ def load_sample(image_path: Path, annotation_path: Path) -> tuple[np.ndarray, np
     image, mask = resize_with_padding(image, mask)
 
     image = image.astype(np.float32) / 255.0
-    mask = mask.astype(np.int32)
+    mask = mask.astype(np.uint8)
 
     return image, mask
 
 
-def load_dataset(pairs: list[tuple[Path, Path]]) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Load all image-mask pairs into NumPy arrays.
-    """
+def sample_generator(pairs):
+    """Load dataset samples one at a time."""
 
-    images = []
-    masks = []
-
-    for index, (image_path, annotation_path) in enumerate(pairs):
+    for image_path, annotation_path in pairs:
         image, mask = load_sample(image_path, annotation_path)
 
-        images.append(image)
-        masks.append(mask)
+        yield image, mask
 
-        if (index + 1) % 100 == 0:
-            print(f"Loaded {index + 1}/{len(pairs)} samples.")
 
-    images = np.stack(images, axis=0)
-    masks = np.stack(masks, axis=0)
+def create_dataset(pairs, training):
+    """Create a TensorFlow dataset that loads samples on demand."""
 
-    return images, masks
+    dataset = tf.data.Dataset.from_generator(
+        lambda: sample_generator(pairs),
+        output_signature=(
+            tf.TensorSpec(shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=tf.int32),
+        ),
+    )
 
+    if training:
+        dataset = dataset.shuffle(buffer_size=16, seed=RANDOM_SEED, reshuffle_each_iteration=True)
+
+    dataset = dataset.batch(BATCH_SIZE)
+    dataset = dataset.prefetch(1)
+
+    return dataset
 
 def masked_sparse_categorical_crossentropy(y_true, y_pred):
     """
@@ -163,19 +168,11 @@ def main():
     print(f"Training samples: {len(training_pairs)}")
     print(f"Validation samples: {len(validation_pairs)}")
 
-    # Load the training dataset.
-    print("\nLoading training dataset...")
-    x_train, y_train = load_dataset(training_pairs)
+    print("\nCreating training dataset...")
+    training_dataset = create_dataset(training_pairs, training=True)
 
-    # Load the validation dataset.
-    print("\nLoading validation dataset...")
-    x_validation, y_validation = load_dataset(validation_pairs)
-
-    print("\nDataset shapes:")
-    print("x_train:", x_train.shape)
-    print("y_train:", y_train.shape)
-    print("x_validation:", x_validation.shape)
-    print("y_validation:", y_validation.shape)
+    print("Creating validation dataset...")
+    validation_dataset = create_dataset(validation_pairs, training=False)
 
     # Build the U-Net model.
     model = build_unet(input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), num_classes=NUM_CLASSES)
@@ -195,8 +192,7 @@ def main():
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True, verbose=1)
 
     # Train the model.
-    model.fit(x_train, y_train, validation_data=(x_validation, y_validation), batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks=[checkpoint, early_stopping], shuffle=True)
-
+    model.fit(training_dataset, validation_data=validation_dataset, epochs=EPOCHS, callbacks=[checkpoint, early_stopping])
     print(f"\nBest weights saved to: {BEST_WEIGHTS_PATH}")
 
 
