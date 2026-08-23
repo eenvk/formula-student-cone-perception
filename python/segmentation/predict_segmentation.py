@@ -3,19 +3,23 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from dataset.dataset_utils import (
-    NUM_CLASSES,
-    annotation_to_semantic_mask,
-    create_overlay,
-    find_all_dataset_pairs,
-    train_validation_split,
-)
 from segmentation.segmentation_config import (
     IMAGE_WIDTH,
     IMAGE_HEIGHT,
     VALIDATION_FRACTION,
     RANDOM_SEED,
 )
+
+from dataset.dataset_utils import (
+    NUM_CLASSES,
+    SMALL_ORANGE_CONE_ID,
+    BIG_ORANGE_CONE_ID,
+    annotation_to_semantic_mask,
+    create_overlay,
+    find_all_dataset_pairs,
+    train_validation_split,
+)
+
 from segmentation.segmentation_model import build_unet
 
 
@@ -43,16 +47,9 @@ def preprocess_image(image_bgr: np.ndarray):
     new_width = int(original_width * scale)
     new_height = int(original_height * scale)
 
-    resized_image = cv2.resize(
-        image_rgb,
-        (new_width, new_height),
-        interpolation=cv2.INTER_LINEAR,
-    )
+    resized_image = cv2.resize(image_rgb,(new_width, new_height),interpolation=cv2.INTER_LINEAR,)
 
-    padded_image = np.zeros(
-        (IMAGE_HEIGHT, IMAGE_WIDTH, 3),
-        dtype=np.uint8,
-    )
+    padded_image = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3),dtype=np.uint8,)
 
     x_offset = (IMAGE_WIDTH - new_width) // 2
     y_offset = (IMAGE_HEIGHT - new_height) // 2
@@ -68,6 +65,30 @@ def preprocess_image(image_bgr: np.ndarray):
 
     return model_input, x_offset, y_offset, new_width, new_height
 
+def make_orange_cones_consistent(predicted_mask: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
+    """Assign one orange class to each connected orange cone region."""
+
+    orange_mask = np.logical_or(
+        predicted_mask == SMALL_ORANGE_CONE_ID,
+        predicted_mask == BIG_ORANGE_CONE_ID,
+        ).astype(np.uint8)
+
+    num_components, component_labels = cv2.connectedComponents(orange_mask, connectivity=8)
+
+    corrected_mask = predicted_mask.copy()
+
+    for component_id in range(1, num_components):
+        component = component_labels == component_id
+
+        small_score = np.mean(probabilities[..., SMALL_ORANGE_CONE_ID][component])
+        big_score = np.mean(probabilities[..., BIG_ORANGE_CONE_ID][component])
+
+        if small_score >= big_score:
+            corrected_mask[component] = SMALL_ORANGE_CONE_ID
+        else:
+            corrected_mask[component] = BIG_ORANGE_CONE_ID
+
+    return corrected_mask
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -102,17 +123,23 @@ def main():
         # Prepare the image using the same preprocessing used during training.
         model_input, x_offset, y_offset, new_width, new_height = preprocess_image(image)
 
-        # Predict class probabilities for every pixel.
         prediction = model.predict(model_input, verbose=0)[0]
+
+        # Remove padding from the probability maps.
+        prediction = prediction[
+             y_offset:y_offset + new_height,
+             x_offset:x_offset + new_width,
+        ]
 
         # Convert probabilities into class identifiers.
         predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
 
-        # Remove the padding added before inference.
-        predicted_mask = predicted_mask[y_offset:y_offset + new_height, x_offset:x_offset + new_width]
+        # Force each orange cone region to have one consistent orange class.
+        predicted_mask = make_orange_cones_consistent(predicted_mask, prediction)
 
         # Restore the predicted mask to the original image resolution.
-        predicted_mask = cv2.resize(predicted_mask, (original_width, original_height), interpolation=cv2.INTER_NEAREST)
+        predicted_mask = cv2.resize(
+            predicted_mask,(original_width, original_height),interpolation=cv2.INTER_NEAREST,)
 
         # Create visualization overlays.
         ground_truth_overlay = create_overlay(image, ground_truth_mask)

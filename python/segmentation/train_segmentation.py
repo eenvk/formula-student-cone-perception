@@ -35,7 +35,7 @@ def resize_with_padding(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray
     resized_mask = cv2.resize(mask, (new_width, new_height), interpolation=cv2.INTER_NEAREST)
 
     image_output = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)
-    mask_output = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+    mask_output = np.full((IMAGE_HEIGHT, IMAGE_WIDTH), IGNORE_ID, dtype=np.uint8)
 
     x_offset = (IMAGE_WIDTH - new_width) // 2
     y_offset = (IMAGE_HEIGHT - new_height) // 2

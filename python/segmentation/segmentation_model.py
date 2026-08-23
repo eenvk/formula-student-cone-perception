@@ -43,34 +43,25 @@ def decoder_block(inputs,skip_features,num_filters):
 
 
 def build_unet(input_shape, num_classes):
-    """Build a U-Net model for multi-class semantic segmentation."""
 
     inputs = tf.keras.layers.Input(shape=input_shape)
 
     # Encoder
-    skip1, pool1 = encoder_block(inputs,32)
-
-    skip2, pool2 = encoder_block(pool1,64)
-
+    skip1, pool1 = encoder_block(inputs, 32)
+    skip2, pool2 = encoder_block(pool1, 64)
     skip3, pool3 = encoder_block(pool2, 128)
 
-    skip4, pool4 = encoder_block(pool3,256)
-
     # Bottleneck
-    bottleneck = conv_block(pool4,512)
+    bottleneck = conv_block(pool3, 256)
 
     # Decoder
-    decoder1 = decoder_block(bottleneck,skip4,256)
-
-    decoder2 = decoder_block(decoder1,skip3,128)
-
-    decoder3 = decoder_block(decoder2,skip2,64)
-
-    decoder4 = decoder_block(decoder3,skip1,32)
+    decoder1 = decoder_block(bottleneck, skip3, 128)
+    decoder2 = decoder_block(decoder1, skip2, 64)
+    decoder3 = decoder_block(decoder2, skip1, 32)
 
     # Pixel-wise classification
-    outputs = tf.keras.layers.Conv2D(num_classes,kernel_size=1,activation="softmax")(decoder4)
+    outputs = tf.keras.layers.Conv2D(num_classes, kernel_size=1, activation="softmax")(decoder3)
 
-    model = tf.keras.Model(inputs=inputs,outputs=outputs,name="unet")
+    model = tf.keras.Model(inputs=inputs, outputs=outputs, name="unet")
 
     return model
