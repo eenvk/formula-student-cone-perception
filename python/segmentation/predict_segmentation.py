@@ -3,10 +3,20 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from dataset.dataset_utils import annotation_to_semantic_mask, create_overlay, find_all_dataset_pairs, train_validation_split
+from dataset.dataset_utils import (
+    NUM_CLASSES,
+    annotation_to_semantic_mask,
+    create_overlay,
+    find_all_dataset_pairs,
+    train_validation_split,
+)
+from segmentation.segmentation_config import (
+    IMAGE_WIDTH,
+    IMAGE_HEIGHT,
+    VALIDATION_FRACTION,
+    RANDOM_SEED,
+)
 from segmentation.segmentation_model import build_unet
-
-from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, VALIDATION_FRACTION, RANDOM_SEED
 
 
 SAMPLE_INDEX = 1
@@ -21,16 +31,42 @@ WEIGHTS_PATH = PROJECT_ROOT / "models" / "unet_best.weights.h5"
 OUTPUT_DIR = PROJECT_ROOT / "prediction_results"
 
 
-def preprocess_image(image_bgr: np.ndarray) -> np.ndarray:
-    """Prepare one image for U-Net inference."""
+def preprocess_image(image_bgr: np.ndarray):
+    """Resize an image with padding while preserving its aspect ratio."""
 
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    image_rgb = cv2.resize(image_rgb, (IMAGE_WIDTH, IMAGE_HEIGHT), interpolation=cv2.INTER_LINEAR)
+    original_height, original_width = image_rgb.shape[:2]
 
-    image_rgb = image_rgb.astype(np.float32) / 255.0
+    scale = min(IMAGE_WIDTH / original_width, IMAGE_HEIGHT / original_height)
 
-    return np.expand_dims(image_rgb, axis=0)
+    new_width = int(original_width * scale)
+    new_height = int(original_height * scale)
+
+    resized_image = cv2.resize(
+        image_rgb,
+        (new_width, new_height),
+        interpolation=cv2.INTER_LINEAR,
+    )
+
+    padded_image = np.zeros(
+        (IMAGE_HEIGHT, IMAGE_WIDTH, 3),
+        dtype=np.uint8,
+    )
+
+    x_offset = (IMAGE_WIDTH - new_width) // 2
+    y_offset = (IMAGE_HEIGHT - new_height) // 2
+
+    padded_image[
+    y_offset:y_offset + new_height,
+    x_offset:x_offset + new_width
+    ] = resized_image
+
+    padded_image = padded_image.astype(np.float32) / 255.0
+
+    model_input = np.expand_dims(padded_image, axis=0)
+
+    return model_input, x_offset, y_offset, new_width, new_height
 
 
 def main():
@@ -39,7 +75,11 @@ def main():
     # Recreate the same validation split used during training.
     pairs = find_all_dataset_pairs(TRAIN_DATASET_DIR)
 
-    _, validation_pairs = train_validation_split(pairs, validation_fraction=VALIDATION_FRACTION, seed=RANDOM_SEED)
+    _, validation_pairs = train_validation_split(
+        pairs,
+        validation_fraction=VALIDATION_FRACTION,
+        seed=RANDOM_SEED,
+    )
 
     image_path, annotation_path = validation_pairs[SAMPLE_INDEX]
 
@@ -54,13 +94,20 @@ def main():
     original_height, original_width = image.shape[:2]
 
     # Create the ground-truth semantic mask.
-    ground_truth_mask = annotation_to_semantic_mask(annotation_path, original_height, original_width)
+    ground_truth_mask = annotation_to_semantic_mask(
+        annotation_path,
+        original_height,
+        original_width,
+    )
 
-    # Prepare the image for the network.
-    model_input = preprocess_image(image)
+    # Prepare the image using the same preprocessing used during training.
+    model_input, x_offset, y_offset, new_width, new_height = preprocess_image(image)
 
     # Build the same U-Net architecture used during training.
-    model = build_unet(input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3))
+    model = build_unet(
+        input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3),
+        num_classes=NUM_CLASSES,
+    )
 
     # Load the trained weights.
     model.load_weights(str(WEIGHTS_PATH))
@@ -71,8 +118,18 @@ def main():
     # Convert probabilities into class identifiers.
     predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
 
+    # Remove the padding added before inference.
+    predicted_mask = predicted_mask[
+                     y_offset:y_offset + new_height,
+                     x_offset:x_offset + new_width,
+                     ]
+
     # Restore the predicted mask to the original image resolution.
-    predicted_mask = cv2.resize(predicted_mask, (original_width, original_height), interpolation=cv2.INTER_NEAREST)
+    predicted_mask = cv2.resize(
+        predicted_mask,
+        (original_width, original_height),
+        interpolation=cv2.INTER_NEAREST,
+    )
 
     # Create visualization overlays.
     ground_truth_overlay = create_overlay(image, ground_truth_mask)
@@ -80,8 +137,14 @@ def main():
 
     # Save the results.
     cv2.imwrite(str(OUTPUT_DIR / "original.png"), image)
-    cv2.imwrite(str(OUTPUT_DIR / "ground_truth_overlay.png"), ground_truth_overlay)
-    cv2.imwrite(str(OUTPUT_DIR / "prediction_overlay.png"), prediction_overlay)
+    cv2.imwrite(
+        str(OUTPUT_DIR / "ground_truth_overlay.png"),
+        ground_truth_overlay,
+    )
+    cv2.imwrite(
+        str(OUTPUT_DIR / "prediction_overlay.png"),
+        prediction_overlay,
+    )
 
     print("Prediction completed.")
     print(f"Results saved in: {OUTPUT_DIR}")
