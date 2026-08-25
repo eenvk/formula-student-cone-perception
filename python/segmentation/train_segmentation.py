@@ -21,9 +21,6 @@ MODEL_DIR = PROJECT_ROOT / "models"
 
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 
-CROSS_ENTROPY_LOSS = tf.keras.losses.SparseCategoricalCrossentropy(ignore_class=IGNORE_ID)
-
-
 def resize_with_padding(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Resize image and mask while preserving their aspect ratio."""
 
@@ -124,7 +121,31 @@ def masked_pixel_accuracy(y_true, y_pred):
 
     return correct_pixel_count / tf.maximum(valid_pixel_count, 1.0)
 
+def masked_sparse_categorical_crossentropy(y_true, y_pred):
+    """
+    Compute sparse categorical cross-entropy while ignoring
+    pixels whose class identifier is IGNORE_ID.
+    """
 
+    y_true = tf.cast(y_true, tf.int32)
+
+    valid_pixels = tf.not_equal(y_true, IGNORE_ID)
+
+    safe_y_true = tf.where(valid_pixels, y_true, 0)
+
+    pixel_loss = tf.keras.losses.sparse_categorical_crossentropy(
+        safe_y_true,
+        y_pred,
+    )
+
+    valid_pixels = tf.cast(valid_pixels, pixel_loss.dtype)
+
+    pixel_loss = pixel_loss * valid_pixels
+
+    total_loss = tf.reduce_sum(pixel_loss)
+    valid_pixel_count = tf.reduce_sum(valid_pixels)
+
+    return total_loss / tf.maximum(valid_pixel_count, 1.0)
 
 def main():
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -158,8 +179,7 @@ def main():
     optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
 
     # Configure the model for training.
-    model.compile(optimizer=optimizer,loss=CROSS_ENTROPY_LOSS,metrics=[masked_pixel_accuracy],)
-
+    model.compile(optimizer=optimizer,loss=masked_sparse_categorical_crossentropy,metrics=[masked_pixel_accuracy],)
     # Save the model weights whenever the validation loss improves.
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=str(BEST_WEIGHTS_PATH), monitor="val_loss", save_best_only=True, save_weights_only=True, verbose=1)
 
