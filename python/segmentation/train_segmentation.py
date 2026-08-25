@@ -21,6 +21,8 @@ MODEL_DIR = PROJECT_ROOT / "models"
 
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 
+BACKUP_DIR = MODEL_DIR / "training_backup"
+
 def resize_with_padding(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Resize image and mask while preserving their aspect ratio."""
 
@@ -94,7 +96,7 @@ def create_dataset(pairs, training):
         dataset = dataset.shuffle(buffer_size=16, seed=RANDOM_SEED, reshuffle_each_iteration=True)
 
     dataset = dataset.batch(BATCH_SIZE)
-    dataset = dataset.prefetch(1)
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
     return dataset
 
@@ -133,10 +135,7 @@ def masked_sparse_categorical_crossentropy(y_true, y_pred):
 
     safe_y_true = tf.where(valid_pixels, y_true, 0)
 
-    pixel_loss = tf.keras.losses.sparse_categorical_crossentropy(
-        safe_y_true,
-        y_pred,
-    )
+    pixel_loss = tf.keras.losses.sparse_categorical_crossentropy(safe_y_true,y_pred,)
 
     valid_pixels = tf.cast(valid_pixels, pixel_loss.dtype)
 
@@ -186,8 +185,10 @@ def main():
     # Stop training if the validation loss does not improve for several epochs.
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True, verbose=1)
 
+    backup = tf.keras.callbacks.BackupAndRestore(backup_dir=str(BACKUP_DIR),save_freq="epoch",delete_checkpoint=False,)
+
     # Train the model.
-    model.fit(training_dataset, validation_data=validation_dataset, epochs=EPOCHS, callbacks=[checkpoint, early_stopping])
+    model.fit(training_dataset,validation_data=validation_dataset,epochs=EPOCHS,callbacks=[checkpoint, early_stopping, backup],)
     print(f"\nBest weights saved to: {BEST_WEIGHTS_PATH}")
 
 
