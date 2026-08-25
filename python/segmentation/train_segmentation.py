@@ -151,9 +151,6 @@ def masked_pixel_accuracy(y_true, y_pred):
 def main():
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("TensorFlow version:", tf.__version__)
-    print("Available GPUs:", tf.config.list_physical_devices("GPU"))
-
     # Find all image-annotation pairs in the segmentation training dataset.
     pairs = find_all_dataset_pairs(TRAIN_DATASET_DIR)
 
@@ -168,10 +165,10 @@ def main():
     print(f"Training samples: {len(training_pairs)}")
     print(f"Validation samples: {len(validation_pairs)}")
 
-    print("\nCreating training dataset...")
+    print("\nCreating training dataset")
     training_dataset = create_dataset(training_pairs, training=True)
 
-    print("Creating validation dataset...")
+    print("Creating validation dataset")
     validation_dataset = create_dataset(validation_pairs, training=False)
 
     # Build the U-Net model.
