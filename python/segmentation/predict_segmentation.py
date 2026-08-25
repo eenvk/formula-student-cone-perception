@@ -27,7 +27,6 @@ from segmentation.segmentation_model import build_unet
 
 NUM_SAMPLES = 5
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 TRAIN_DATASET_DIR = PROJECT_ROOT / "dataset" / "fsoco_segmentation_train"
