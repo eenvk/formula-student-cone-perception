@@ -8,7 +8,7 @@ import tensorflow as tf
 from dataset.dataset_utils import IGNORE_ID, NUM_CLASSES, annotation_to_semantic_mask, find_all_dataset_pairs, resize_mask, train_validation_split
 from segmentation.segmentation_model import build_unet
 
-from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, BATCH_SIZE, EPOCHS, LEARNING_RATE, VALIDATION_FRACTION, RANDOM_SEED, DICE_WEIGHT
+from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, BATCH_SIZE, EPOCHS, LEARNING_RATE, VALIDATION_FRACTION, RANDOM_SEED
 
 
 # Project paths
@@ -22,8 +22,6 @@ MODEL_DIR = PROJECT_ROOT / "models"
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 
 CROSS_ENTROPY_LOSS = tf.keras.losses.SparseCategoricalCrossentropy(ignore_class=IGNORE_ID)
-
-DICE_LOSS = tf.keras.losses.Dice()
 
 
 def resize_with_padding(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -127,35 +125,6 @@ def masked_pixel_accuracy(y_true, y_pred):
     return correct_pixel_count / tf.maximum(valid_pixel_count, 1.0)
 
 
-def combined_segmentation_loss(y_true, y_pred):
-    """Combine Keras cross-entropy and Dice loss for cone segmentation."""
-
-    y_true = tf.cast(y_true, tf.int32)
-
-    cross_entropy = CROSS_ENTROPY_LOSS(y_true, y_pred)
-
-    # Identify pixels that must participate in Dice loss.
-    valid_pixels = tf.not_equal(y_true, IGNORE_ID)
-
-    # Replace ignored pixels before one-hot encoding.
-    safe_y_true = tf.where(valid_pixels, y_true, 0)
-
-    # Convert integer class IDs to one-hot vectors.
-    y_true_one_hot = tf.one_hot(safe_y_true, depth=NUM_CLASSES, dtype=tf.float32)
-
-    # Remove ignored pixels.
-    valid_mask = tf.cast(valid_pixels[..., tf.newaxis], tf.float32)
-
-    y_true_one_hot = y_true_one_hot * valid_mask
-    y_pred = tf.cast(y_pred, tf.float32) * valid_mask
-
-    # Exclude background from Dice loss.
-    y_true_cones = y_true_one_hot[..., 1:]
-    y_pred_cones = y_pred[..., 1:]
-
-    dice = DICE_LOSS(y_true_cones, y_pred_cones)
-
-    return cross_entropy + DICE_WEIGHT * dice
 
 def main():
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -189,7 +158,7 @@ def main():
     optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
 
     # Configure the model for training.
-    model.compile(optimizer=optimizer,loss=combined_segmentation_loss,metrics=[masked_pixel_accuracy],)
+    model.compile(optimizer=optimizer,loss=CROSS_ENTROPY_LOSS,metrics=[masked_pixel_accuracy],)
     # Save the model weights whenever the validation loss improves.
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=str(BEST_WEIGHTS_PATH), monitor="val_loss", save_best_only=True, save_weights_only=True, verbose=1)
 
