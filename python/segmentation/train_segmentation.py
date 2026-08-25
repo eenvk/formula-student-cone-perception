@@ -159,6 +159,7 @@ def main():
 
     # Configure the model for training.
     model.compile(optimizer=optimizer,loss=CROSS_ENTROPY_LOSS,metrics=[masked_pixel_accuracy],)
+
     # Save the model weights whenever the validation loss improves.
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=str(BEST_WEIGHTS_PATH), monitor="val_loss", save_best_only=True, save_weights_only=True, verbose=1)
 
