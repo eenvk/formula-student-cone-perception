@@ -8,7 +8,7 @@ import tensorflow as tf
 from dataset.dataset_utils import IGNORE_ID, NUM_CLASSES, annotation_to_semantic_mask, find_all_dataset_pairs, resize_mask, train_validation_split
 from segmentation.segmentation_model import build_unet
 
-from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, BATCH_SIZE, EPOCHS, LEARNING_RATE, VALIDATION_FRACTION, RANDOM_SEED
+from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, BATCH_SIZE, EPOCHS, LEARNING_RATE, VALIDATION_FRACTION, RANDOM_SEED, DICE_WEIGHT
 
 
 # Project paths
@@ -148,6 +148,69 @@ def masked_pixel_accuracy(y_true, y_pred):
     return correct_pixel_count / tf.maximum(valid_pixel_count, 1.0)
 
 
+def masked_dice_loss(y_true, y_pred):
+    """
+    Compute Dice loss for cone classes while ignoring background
+    and IGNORE_ID pixels.
+    """
+
+    y_true = tf.cast(y_true, tf.int32)
+
+    valid_pixels = tf.not_equal(y_true, IGNORE_ID)
+
+    # Replace ignored pixels with background before one-hot encoding.
+    safe_y_true = tf.where(valid_pixels, y_true, 0)
+
+    # Convert class identifiers into one-hot vectors.
+    y_true_one_hot = tf.one_hot(safe_y_true,depth=NUM_CLASSES,dtype=tf.float32,)
+
+    # Ignore invalid pixels in both ground truth and prediction.
+    valid_mask = tf.cast(valid_pixels[..., tf.newaxis], tf.float32)
+
+    y_true_one_hot = y_true_one_hot * valid_mask
+    y_pred = tf.cast(y_pred, tf.float32) * valid_mask
+
+    # Exclude background and keep only the four cone classes.
+    y_true_cones = y_true_one_hot[..., 1:]
+    y_pred_cones = y_pred[..., 1:]
+
+    # Sum over batch, height and width.
+    axes = (0, 1, 2)
+
+    intersection = tf.reduce_sum(y_true_cones * y_pred_cones,axis=axes,)
+
+    ground_truth_size = tf.reduce_sum(y_true_cones,axis=axes,)
+
+    prediction_size = tf.reduce_sum(y_pred_cones,axis=axes,)
+
+    denominator = ground_truth_size + prediction_size
+
+    smooth = 1e-6
+
+    dice_per_class = (2.0 * intersection + smooth) / (denominator + smooth)
+
+    # Consider only classes actually present in the current batch.
+    class_present = ground_truth_size > 0
+
+    present_dice = tf.boolean_mask(dice_per_class,class_present,)
+
+    mean_dice = tf.cond(tf.size(present_dice) > 0,lambda: tf.reduce_mean(present_dice),lambda: tf.constant(1.0, dtype=tf.float32),)
+
+    return 1.0 - mean_dice
+
+
+def combined_segmentation_loss(y_true, y_pred):
+    """Combine categorical cross-entropy and Dice loss."""
+
+    cross_entropy_loss = masked_sparse_categorical_crossentropy(
+        y_true,
+        y_pred,
+    )
+
+    dice_loss = masked_dice_loss(y_true,y_pred,)
+
+    return cross_entropy_loss + DICE_WEIGHT * dice_loss
+
 def main():
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -180,8 +243,7 @@ def main():
     optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
 
     # Configure the model for training.
-    model.compile(optimizer=optimizer, loss=masked_sparse_categorical_crossentropy, metrics=[masked_pixel_accuracy])
-
+    model.compile(optimizer=optimizer,loss=combined_segmentation_loss,metrics=[masked_pixel_accuracy],)
     # Save the model weights whenever the validation loss improves.
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=str(BEST_WEIGHTS_PATH), monitor="val_loss", save_best_only=True, save_weights_only=True, verbose=1)
 
