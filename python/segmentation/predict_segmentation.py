@@ -5,12 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from segmentation.segmentation_config import (
-    IMAGE_WIDTH,
-    IMAGE_HEIGHT,
-    VALIDATION_FRACTION,
-    RANDOM_SEED,
-)
+from segmentation.segmentation_config import PATCH_WIDTH,PATCH_HEIGHT,BATCH_SIZE,VALIDATION_FRACTION,RANDOM_SEED,PATCH_OVERLAP,PATCH_WIDTH,PATCH_HEIGHT, CONE_CONFIDENCE_THRESHOLD
 
 from dataset.dataset_utils import (
     NUM_CLASSES,
@@ -36,35 +31,77 @@ WEIGHTS_PATH = PROJECT_ROOT / "models" / "unet_best.weights.h5"
 OUTPUT_DIR = PROJECT_ROOT / "prediction_results"
 
 
-def preprocess_image(image_bgr: np.ndarray):
-    """Resize an image with padding while preserving its aspect ratio."""
+def get_patch_positions(length: int, patch_size: int, overlap: int) -> list[int]:
+    """Return patch starting positions that cover an entire image dimension."""
+
+    if length <= patch_size:
+        return [0]
+
+    stride = patch_size - overlap
+
+    positions = list(range(0,length - patch_size + 1,stride,))
+
+    last_position = length - patch_size
+
+    if positions[-1] != last_position:
+        positions.append(last_position)
+
+    return positions
+
+def predict_with_patches(model, image_bgr: np.ndarray) -> np.ndarray:
+    """Predict full-resolution probabilities using overlapping patches."""
+
+    original_height, original_width = image_bgr.shape[:2]
 
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    original_height, original_width = image_rgb.shape[:2]
+    padded_height = max(original_height, PATCH_HEIGHT)
+    padded_width = max(original_width, PATCH_WIDTH)
 
-    scale = min(IMAGE_WIDTH / original_width, IMAGE_HEIGHT / original_height)
+    padded_image = np.zeros((padded_height, padded_width, 3),dtype=np.uint8,)
 
-    new_width = int(original_width * scale)
-    new_height = int(original_height * scale)
-
-    resized_image = cv2.resize(image_rgb,(new_width, new_height),interpolation=cv2.INTER_LINEAR,)
-
-    padded_image = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3),dtype=np.uint8,)
-
-    x_offset = (IMAGE_WIDTH - new_width) // 2
-    y_offset = (IMAGE_HEIGHT - new_height) // 2
-
-    padded_image[
-    y_offset:y_offset + new_height,
-    x_offset:x_offset + new_width
-    ] = resized_image
+    padded_image[:original_height, :original_width] = image_rgb
 
     padded_image = padded_image.astype(np.float32) / 255.0
 
-    model_input = np.expand_dims(padded_image, axis=0)
+    x_positions = get_patch_positions(padded_width,PATCH_WIDTH,PATCH_OVERLAP,)
 
-    return model_input, x_offset, y_offset, new_width, new_height
+    y_positions = get_patch_positions(padded_height,PATCH_HEIGHT,PATCH_OVERLAP,)
+
+    patches = []
+    patch_coordinates = []
+
+    for y_start in y_positions:
+        for x_start in x_positions:
+            patch = padded_image[y_start:y_start + PATCH_HEIGHT,x_start:x_start + PATCH_WIDTH,]
+
+            patches.append(patch)
+            patch_coordinates.append((x_start, y_start))
+
+    patches = np.stack(patches, axis=0)
+
+    predictions = model.predict(patches,batch_size=BATCH_SIZE,verbose=0,)
+
+    probability_sum = np.zeros((padded_height, padded_width, NUM_CLASSES),dtype=np.float32,)
+
+    prediction_count = np.zeros((padded_height, padded_width, 1),dtype=np.float32,)
+
+    for prediction, (x_start, y_start) in zip(predictions, patch_coordinates):
+        probability_sum[
+        y_start:y_start + PATCH_HEIGHT,
+        x_start:x_start + PATCH_WIDTH,
+        ] += prediction
+
+        prediction_count[
+        y_start:y_start + PATCH_HEIGHT,
+        x_start:x_start + PATCH_WIDTH,
+        ] += 1.0
+
+    probabilities = probability_sum / prediction_count
+
+    probabilities = probabilities[:original_height,:original_width,]
+
+    return probabilities
 
 def make_orange_cones_consistent(predicted_mask: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
     """Assign one orange class to each connected orange cone region."""
@@ -98,10 +135,10 @@ def main():
     pairs = find_all_dataset_pairs(TRAIN_DATASET_DIR)
     _, validation_pairs = train_validation_split(pairs, validation_fraction=VALIDATION_FRACTION, seed=RANDOM_SEED)
 
-    # Build the same U-Net architecture used during training.
-    model = build_unet(input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), num_classes=NUM_CLASSES)
+    # Build the same U-Net architecture used during patch training.
+    model = build_unet(input_shape=(PATCH_HEIGHT, PATCH_WIDTH, 3), num_classes=NUM_CLASSES)
 
-    # Load the trained weights only once.
+    # Load the trained patch-model weights.
     model.load_weights(str(WEIGHTS_PATH))
 
     # Run prediction on multiple validation samples.
@@ -118,35 +155,31 @@ def main():
 
         original_height, original_width = image.shape[:2]
 
-        # Create the ground-truth semantic mask.
+        # Create the ground-truth semantic mask at original resolution.
         ground_truth_mask = annotation_to_semantic_mask(annotation_path, original_height, original_width)
 
-        # Prepare the image using the same preprocessing used during training.
-        model_input, x_offset, y_offset, new_width, new_height = preprocess_image(image)
+        # Predict full-resolution class probabilities using overlapping patches.
+        prediction = predict_with_patches(model, image)
 
-        prediction = model.predict(model_input, verbose=0)[0]
-
-        # Remove padding from the probability maps.
-        prediction = prediction[
-             y_offset:y_offset + new_height,
-             x_offset:x_offset + new_width,
-        ]
-
-        # Convert probabilities into class identifiers.
+        # Convert class probabilities into class identifiers.
         predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
+
+        # Get the highest probability among cone classes.
+        cone_probability = np.max(prediction[..., 1:], axis=-1)
+
+        # Remove uncertain cone predictions.
+        uncertain_cone_pixels = np.logical_and(predicted_mask != 0,cone_probability < CONE_CONFIDENCE_THRESHOLD,)
+
+        predicted_mask[uncertain_cone_pixels] = 0
 
         # Force each orange cone region to have one consistent orange class.
         predicted_mask = make_orange_cones_consistent(predicted_mask, prediction)
-
-        # Restore the predicted mask to the original image resolution.
-        predicted_mask = cv2.resize(
-            predicted_mask,(original_width, original_height),interpolation=cv2.INTER_NEAREST,)
 
         # Create visualization overlays.
         ground_truth_overlay = create_overlay(image, ground_truth_mask)
         prediction_overlay = create_overlay(image, predicted_mask)
 
-        # Create a separate folder for each sample.
+        # Create a separate output folder for each sample.
         sample_output_dir = OUTPUT_DIR / f"sample_{sample_index + 1}"
         sample_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -157,6 +190,7 @@ def main():
 
     print("Predictions completed.")
     print(f"Results saved in: {OUTPUT_DIR}")
+
 
 if __name__ == "__main__":
     main()

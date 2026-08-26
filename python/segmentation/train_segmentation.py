@@ -8,8 +8,7 @@ import tensorflow as tf
 from dataset.dataset_utils import IGNORE_ID, NUM_CLASSES, annotation_to_semantic_mask, find_all_dataset_pairs, resize_mask, train_validation_split
 from segmentation.segmentation_model import build_unet
 
-from segmentation.segmentation_config import IMAGE_WIDTH, IMAGE_HEIGHT, BATCH_SIZE, EPOCHS, LEARNING_RATE, VALIDATION_FRACTION, RANDOM_SEED
-
+from segmentation.segmentation_config import PATCH_WIDTH,PATCH_HEIGHT,CONE_PATCH_PROBABILITY,BATCH_SIZE,EPOCHS,LEARNING_RATE,VALIDATION_FRACTION,RANDOM_SEED
 
 # Project paths
 
@@ -23,34 +22,107 @@ BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 
 BACKUP_DIR = MODEL_DIR / "training_backup"
 
-def resize_with_padding(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Resize image and mask while preserving their aspect ratio."""
+
+
+def pad_to_patch_size(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Pad image and mask if they are smaller than the patch size."""
 
     original_height, original_width = image.shape[:2]
 
-    scale = min(IMAGE_WIDTH / original_width, IMAGE_HEIGHT / original_height)
+    padded_height = max(original_height, PATCH_HEIGHT)
+    padded_width = max(original_width, PATCH_WIDTH)
 
-    new_width = int(original_width * scale)
-    new_height = int(original_height * scale)
+    padded_image = np.zeros(
+        (padded_height, padded_width, 3),
+        dtype=np.uint8,
+    )
 
-    resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-    resized_mask = cv2.resize(mask, (new_width, new_height), interpolation=cv2.INTER_NEAREST)
+    padded_mask = np.full(
+        (padded_height, padded_width),
+        IGNORE_ID,
+        dtype=np.uint8,
+    )
 
-    image_output = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)
-    mask_output = np.full((IMAGE_HEIGHT, IMAGE_WIDTH), IGNORE_ID, dtype=np.uint8)
+    padded_image[:original_height, :original_width] = image
+    padded_mask[:original_height, :original_width] = mask
 
-    x_offset = (IMAGE_WIDTH - new_width) // 2
-    y_offset = (IMAGE_HEIGHT - new_height) // 2
+    return padded_image, padded_mask
 
-    image_output[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_image
-    mask_output[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_mask
 
-    return image_output, mask_output
+def extract_patch(image: np.ndarray, mask: np.ndarray, training: bool) -> tuple[np.ndarray, np.ndarray]:
+    """Extract one fixed-size patch from an image-mask pair."""
 
-def load_sample(image_path: Path, annotation_path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Load and preprocess one image-mask pair.
-    """
+    image, mask = pad_to_patch_size(image, mask)
+
+    image_height, image_width = image.shape[:2]
+
+    max_x = image_width - PATCH_WIDTH
+    max_y = image_height - PATCH_HEIGHT
+
+    cone_classes = [
+        class_id
+        for class_id in range(1, NUM_CLASSES)
+        if np.any(mask == class_id)
+    ]
+
+    if training and cone_classes and np.random.rand() < CONE_PATCH_PROBABILITY:
+        # Select one cone class present in the image.
+        selected_class = int(np.random.choice(cone_classes))
+
+        y_coordinates, x_coordinates = np.where(mask == selected_class)
+
+        selected_pixel = np.random.randint(len(x_coordinates))
+
+        center_x = int(x_coordinates[selected_pixel])
+        center_y = int(y_coordinates[selected_pixel])
+
+        # Add a small random displacement so the cone is not always centered.
+        jitter_x = np.random.randint(-PATCH_WIDTH // 4, PATCH_WIDTH // 4 + 1)
+        jitter_y = np.random.randint(-PATCH_HEIGHT // 4, PATCH_HEIGHT // 4 + 1)
+
+        x_start = center_x - PATCH_WIDTH // 2 + jitter_x
+        y_start = center_y - PATCH_HEIGHT // 2 + jitter_y
+
+        x_start = int(np.clip(x_start, 0, max_x))
+        y_start = int(np.clip(y_start, 0, max_y))
+
+    elif training:
+        # Sometimes use a random background/context patch.
+        x_start = np.random.randint(0, max_x + 1)
+        y_start = np.random.randint(0, max_y + 1)
+
+    else:
+        # Use a deterministic cone-centered patch for validation.
+        cone_pixels = np.logical_and(mask > 0, mask < NUM_CLASSES)
+
+        if np.any(cone_pixels):
+            y_coordinates, x_coordinates = np.where(cone_pixels)
+
+            center_x = int(np.median(x_coordinates))
+            center_y = int(np.median(y_coordinates))
+
+            x_start = int(np.clip(center_x - PATCH_WIDTH // 2, 0, max_x))
+            y_start = int(np.clip(center_y - PATCH_HEIGHT // 2, 0, max_y))
+
+        else:
+            x_start = max_x // 2
+            y_start = max_y // 2
+
+    image_patch = image[
+                  y_start:y_start + PATCH_HEIGHT,
+                  x_start:x_start + PATCH_WIDTH,
+                  ]
+
+    mask_patch = mask[
+                 y_start:y_start + PATCH_HEIGHT,
+                 x_start:x_start + PATCH_WIDTH,
+                 ]
+
+    return image_patch, mask_patch
+
+
+def load_sample(image_path: Path, annotation_path: Path, training: bool) -> tuple[np.ndarray, np.ndarray]:
+    """Load one image-mask pair and extract a training or validation patch."""
 
     image = cv2.imread(str(image_path))
 
@@ -59,44 +131,59 @@ def load_sample(image_path: Path, annotation_path: Path) -> tuple[np.ndarray, np
 
     original_height, original_width = image.shape[:2]
 
-    mask = annotation_to_semantic_mask(annotation_path, original_height, original_width)
+    mask = annotation_to_semantic_mask(
+        annotation_path,
+        original_height,
+        original_width,
+    )
 
-    # OpenCV loads images in BGR format.
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    image, mask = resize_with_padding(image, mask)
+    image, mask = extract_patch(
+        image,
+        mask,
+        training,
+    )
 
     image = image.astype(np.float32) / 255.0
     mask = mask.astype(np.int32)
 
     return image, mask
 
-
-def sample_generator(pairs):
-    """Load dataset samples one at a time."""
+def sample_generator(pairs, training: bool):
+    """Load dataset patches one at a time."""
 
     for image_path, annotation_path in pairs:
-        image, mask = load_sample(image_path, annotation_path)
+        image, mask = load_sample(image_path,annotation_path,training,)
 
         yield image, mask
 
-
-def create_dataset(pairs, training):
-    """Create a TensorFlow dataset that loads samples on demand."""
+def create_dataset(pairs, training: bool):
+    """Create a TensorFlow dataset that loads patches on demand."""
 
     dataset = tf.data.Dataset.from_generator(
-        lambda: sample_generator(pairs),
+        lambda: sample_generator(pairs, training),
         output_signature=(
-            tf.TensorSpec(shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=tf.int32),
+            tf.TensorSpec(
+                shape=(PATCH_HEIGHT, PATCH_WIDTH, 3),
+                dtype=tf.float32,
+            ),
+            tf.TensorSpec(
+                shape=(PATCH_HEIGHT, PATCH_WIDTH),
+                dtype=tf.int32,
+            ),
         ),
     )
 
     if training:
-        dataset = dataset.shuffle(buffer_size=16, seed=RANDOM_SEED, reshuffle_each_iteration=True)
+        dataset = dataset.shuffle(
+            buffer_size=16,
+            seed=RANDOM_SEED,
+            reshuffle_each_iteration=True,
+        )
 
     dataset = dataset.batch(BATCH_SIZE)
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    dataset = dataset.prefetch(1)
 
     return dataset
 
@@ -170,7 +257,7 @@ def main():
     validation_dataset = create_dataset(validation_pairs, training=False)
 
     # Build the U-Net model.
-    model = build_unet(input_shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), num_classes=NUM_CLASSES)
+    model = build_unet(input_shape=(PATCH_HEIGHT, PATCH_WIDTH, 3),num_classes=NUM_CLASSES,)
 
     model.summary()
 
