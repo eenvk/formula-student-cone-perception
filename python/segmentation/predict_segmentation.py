@@ -5,20 +5,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from segmentation.segmentation_config import PATCH_WIDTH,PATCH_HEIGHT,BATCH_SIZE,VALIDATION_FRACTION,RANDOM_SEED,PATCH_OVERLAP,PATCH_WIDTH,PATCH_HEIGHT, CONE_CONFIDENCE_THRESHOLD
+from segmentation.segmentation_config import PATCH_WIDTH,PATCH_HEIGHT,BATCH_SIZE,VALIDATION_FRACTION,RANDOM_SEED,PATCH_OVERLAP,PATCH_WIDTH,PATCH_HEIGHT
+from segmentation.segmentation_config import GEOMETRY_MIN_AREA_FOR_SHAPE, MAX_CONE_WIDTH_HEIGHT_RATIO, MAX_CONE_EXTENT, MAX_COMPONENT_AREA_RATIO
 
-from dataset.dataset_utils import (
-    NUM_CLASSES,
-    SMALL_ORANGE_CONE_ID,
-    BIG_ORANGE_CONE_ID,
-    annotation_to_semantic_mask,
-    create_overlay,
-    find_all_dataset_pairs,
-    train_validation_split,
-)
+from dataset.dataset_utils import NUM_CLASSES,BACKGROUND_ID,SMALL_ORANGE_CONE_ID,BIG_ORANGE_CONE_ID,annotation_to_semantic_mask,create_overlay,find_all_dataset_pairs,train_validation_split
 
 from segmentation.segmentation_model import build_unet
-
 
 NUM_SAMPLES = 5
 
@@ -128,6 +120,49 @@ def make_orange_cones_consistent(predicted_mask: np.ndarray, probabilities: np.n
 
     return corrected_mask
 
+def filter_geometric_components(predicted_mask: np.ndarray) -> np.ndarray:
+    """Remove cone components with clearly implausible geometry."""
+
+    filtered_mask = predicted_mask.copy()
+
+    image_height, image_width = predicted_mask.shape
+    image_area = image_height * image_width
+
+    for class_id in range(1, NUM_CLASSES):
+        class_mask = (predicted_mask == class_id).astype(np.uint8)
+
+        num_components, labels, stats, _ = cv2.connectedComponentsWithStats(class_mask, connectivity=8)
+
+        for component_id in range(1, num_components):
+            x = stats[component_id, cv2.CC_STAT_LEFT]
+            y = stats[component_id, cv2.CC_STAT_TOP]
+            width = stats[component_id, cv2.CC_STAT_WIDTH]
+            height = stats[component_id, cv2.CC_STAT_HEIGHT]
+            area = stats[component_id, cv2.CC_STAT_AREA]
+
+            area_ratio = area / image_area
+
+            # Remove extremely large components.
+            if area_ratio > MAX_COMPONENT_AREA_RATIO:
+                filtered_mask[labels == component_id] = BACKGROUND_ID
+                continue
+
+            # Preserve very small components because they may be distant cones.
+            if area < GEOMETRY_MIN_AREA_FOR_SHAPE:
+                continue
+
+            width_height_ratio = width / max(height, 1)
+            bounding_box_area = width * height
+            extent = area / max(bounding_box_area, 1)
+
+            too_wide = width_height_ratio > MAX_CONE_WIDTH_HEIGHT_RATIO
+            too_rectangular = extent > MAX_CONE_EXTENT
+
+            if too_wide or too_rectangular:
+                filtered_mask[labels == component_id] = BACKGROUND_ID
+
+    return filtered_mask
+
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -164,16 +199,10 @@ def main():
         # Convert class probabilities into class identifiers.
         predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
 
-        # Get the highest probability among cone classes.
-        cone_probability = np.max(prediction[..., 1:], axis=-1)
-
-        # Remove uncertain cone predictions.
-        uncertain_cone_pixels = np.logical_and(predicted_mask != 0,cone_probability < CONE_CONFIDENCE_THRESHOLD,)
-
-        predicted_mask[uncertain_cone_pixels] = 0
-
         # Force each orange cone region to have one consistent orange class.
         predicted_mask = make_orange_cones_consistent(predicted_mask, prediction)
+
+        predicted_mask = filter_geometric_components(predicted_mask)
 
         # Create visualization overlays.
         ground_truth_overlay = create_overlay(image, ground_truth_mask)
