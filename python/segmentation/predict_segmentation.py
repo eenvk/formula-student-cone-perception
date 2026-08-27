@@ -94,6 +94,7 @@ def predict_with_patches(model, image_bgr: np.ndarray) -> np.ndarray:
 
     return probabilities
 
+'''
 def make_orange_cones_consistent(predicted_mask: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
     """Assign one orange class to each connected orange cone region."""
 
@@ -115,7 +116,34 @@ def make_orange_cones_consistent(predicted_mask: np.ndarray, probabilities: np.n
             corrected_mask[component] = BIG_ORANGE_CONE_ID
 
     return corrected_mask
+'''
+def make_cones_consistent(predicted_mask: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
+    """Assign one single cone class to each connected cone component."""
 
+    cone_mask = (predicted_mask != BACKGROUND_ID).astype(np.uint8)
+
+    num_components, component_labels = cv2.connectedComponents(cone_mask, connectivity=8)
+
+    corrected_mask = predicted_mask.copy()
+
+    cone_class_ids = [1, 2, 3, 4]
+
+    for component_id in range(1, num_components):
+        component = component_labels == component_id
+
+        best_class_id = None
+        best_score = -1.0
+
+        for class_id in cone_class_ids:
+            class_score = np.mean(probabilities[..., class_id][component])
+
+            if class_score > best_score:
+                best_score = class_score
+                best_class_id = class_id
+
+        corrected_mask[component] = best_class_id
+
+    return corrected_mask
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -154,7 +182,7 @@ def main():
         predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
 
         # Assign one consistent class to each connected orange cone.
-        predicted_mask = make_orange_cones_consistent(predicted_mask, prediction)
+        predicted_mask = make_cones_consistent(predicted_mask, prediction)
 
         # Create visualization overlays.
         ground_truth_overlay = create_overlay(image, ground_truth_mask)
