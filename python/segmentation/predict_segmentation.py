@@ -6,7 +6,6 @@ import cv2
 import numpy as np
 
 from segmentation.segmentation_config import PATCH_WIDTH,PATCH_HEIGHT,BATCH_SIZE,VALIDATION_FRACTION,RANDOM_SEED,PATCH_OVERLAP,PATCH_WIDTH,PATCH_HEIGHT
-from segmentation.segmentation_config import GEOMETRY_MIN_AREA_FOR_SHAPE, MAX_CONE_WIDTH_HEIGHT_RATIO, MAX_CONE_EXTENT, MAX_COMPONENT_AREA_RATIO
 
 from dataset.dataset_utils import NUM_CLASSES,BACKGROUND_ID,SMALL_ORANGE_CONE_ID,BIG_ORANGE_CONE_ID,annotation_to_semantic_mask,create_overlay,find_all_dataset_pairs,train_validation_split
 
@@ -98,10 +97,7 @@ def predict_with_patches(model, image_bgr: np.ndarray) -> np.ndarray:
 def make_orange_cones_consistent(predicted_mask: np.ndarray, probabilities: np.ndarray) -> np.ndarray:
     """Assign one orange class to each connected orange cone region."""
 
-    orange_mask = np.logical_or(
-        predicted_mask == SMALL_ORANGE_CONE_ID,
-        predicted_mask == BIG_ORANGE_CONE_ID,
-        ).astype(np.uint8)
+    orange_mask = np.logical_or(predicted_mask == SMALL_ORANGE_CONE_ID, predicted_mask == BIG_ORANGE_CONE_ID).astype(np.uint8)
 
     num_components, component_labels = cv2.connectedComponents(orange_mask, connectivity=8)
 
@@ -120,48 +116,6 @@ def make_orange_cones_consistent(predicted_mask: np.ndarray, probabilities: np.n
 
     return corrected_mask
 
-def filter_geometric_components(predicted_mask: np.ndarray) -> np.ndarray:
-    """Remove cone components with clearly implausible geometry."""
-
-    filtered_mask = predicted_mask.copy()
-
-    image_height, image_width = predicted_mask.shape
-    image_area = image_height * image_width
-
-    for class_id in range(1, NUM_CLASSES):
-        class_mask = (predicted_mask == class_id).astype(np.uint8)
-
-        num_components, labels, stats, _ = cv2.connectedComponentsWithStats(class_mask, connectivity=8)
-
-        for component_id in range(1, num_components):
-            x = stats[component_id, cv2.CC_STAT_LEFT]
-            y = stats[component_id, cv2.CC_STAT_TOP]
-            width = stats[component_id, cv2.CC_STAT_WIDTH]
-            height = stats[component_id, cv2.CC_STAT_HEIGHT]
-            area = stats[component_id, cv2.CC_STAT_AREA]
-
-            area_ratio = area / image_area
-
-            # Remove extremely large components.
-            if area_ratio > MAX_COMPONENT_AREA_RATIO:
-                filtered_mask[labels == component_id] = BACKGROUND_ID
-                continue
-
-            # Preserve very small components because they may be distant cones.
-            if area < GEOMETRY_MIN_AREA_FOR_SHAPE:
-                continue
-
-            width_height_ratio = width / max(height, 1)
-            bounding_box_area = width * height
-            extent = area / max(bounding_box_area, 1)
-
-            too_wide = width_height_ratio > MAX_CONE_WIDTH_HEIGHT_RATIO
-            too_rectangular = extent > MAX_CONE_EXTENT
-
-            if too_wide or too_rectangular:
-                filtered_mask[labels == component_id] = BACKGROUND_ID
-
-    return filtered_mask
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -170,13 +124,13 @@ def main():
     pairs = find_all_dataset_pairs(TRAIN_DATASET_DIR)
     _, validation_pairs = train_validation_split(pairs, validation_fraction=VALIDATION_FRACTION, seed=RANDOM_SEED)
 
-    # Build the same U-Net architecture used during patch training.
+    # Build the same U-Net architecture used during training.
     model = build_unet(input_shape=(PATCH_HEIGHT, PATCH_WIDTH, 3), num_classes=NUM_CLASSES)
 
-    # Load the trained patch-model weights.
+    # Load the trained model weights.
     model.load_weights(str(WEIGHTS_PATH))
 
-    # Run prediction on multiple validation samples.
+    # Predict a few validation samples.
     for sample_index in range(NUM_SAMPLES):
         image_path, annotation_path = validation_pairs[sample_index]
 
@@ -190,25 +144,23 @@ def main():
 
         original_height, original_width = image.shape[:2]
 
-        # Create the ground-truth semantic mask at original resolution.
+        # Create the ground-truth segmentation mask.
         ground_truth_mask = annotation_to_semantic_mask(annotation_path, original_height, original_width)
 
-        # Predict full-resolution class probabilities using overlapping patches.
+        # Predict full-resolution class probabilities.
         prediction = predict_with_patches(model, image)
 
-        # Convert class probabilities into class identifiers.
+        # Assign the most probable class to each pixel.
         predicted_mask = np.argmax(prediction, axis=-1).astype(np.uint8)
 
-        # Force each orange cone region to have one consistent orange class.
+        # Assign one consistent class to each connected orange cone.
         predicted_mask = make_orange_cones_consistent(predicted_mask, prediction)
-
-        predicted_mask = filter_geometric_components(predicted_mask)
 
         # Create visualization overlays.
         ground_truth_overlay = create_overlay(image, ground_truth_mask)
         prediction_overlay = create_overlay(image, predicted_mask)
 
-        # Create a separate output folder for each sample.
+        # Create the output folder for this sample.
         sample_output_dir = OUTPUT_DIR / f"sample_{sample_index + 1}"
         sample_output_dir.mkdir(parents=True, exist_ok=True)
 

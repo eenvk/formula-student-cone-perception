@@ -37,6 +37,8 @@ def pad_to_patch_size(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, 
 
     return padded_image, padded_mask
 
+
+
 def extract_patch(image: np.ndarray, mask: np.ndarray, training: bool) -> tuple[np.ndarray, np.ndarray]:
     """Extract one fixed-size patch from an image-mask pair."""
 
@@ -88,8 +90,6 @@ def extract_patch(image: np.ndarray, mask: np.ndarray, training: bool) -> tuple[
     mask_patch = mask[y_start:y_start + PATCH_HEIGHT, x_start:x_start + PATCH_WIDTH]
 
     return image_patch, mask_patch
-
-
 
 def extract_patch_around_point(
         image: np.ndarray,
