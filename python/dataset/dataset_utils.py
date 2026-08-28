@@ -24,13 +24,9 @@ PYTHON_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATASET_ROOT = PROJECT_ROOT / "dataset"
 
-BOUNDING_BOXES_TRAIN_ROOT = DATASET_ROOT / "fsoco_bounding_boxes_train" / "iitb"
-BOUNDING_BOXES_TRAIN_ANNOTATION_DIR = BOUNDING_BOXES_TRAIN_ROOT / "ann"
-BOUNDING_BOXES_TRAIN_IMAGE_DIR = BOUNDING_BOXES_TRAIN_ROOT / "img"
+BOUNDING_BOXES_TRAIN_ROOT = DATASET_ROOT / "fsoco_bounding_boxes_train"
 
-SEGMENTATION_TRAIN_ROOT = DATASET_ROOT / "fsoco_segmentation_train" / "amz"
-SEGMENTATION_TRAIN_ANNOTATION_DIR = SEGMENTATION_TRAIN_ROOT / "ann"
-SEGMENTATION_TRAIN_IMAGE_DIR = SEGMENTATION_TRAIN_ROOT / "img"
+SEGMENTATION_TRAIN_ROOT = DATASET_ROOT / "fsoco_segmentation_train"
 
 SEGMENTATION_TEST_ROOT = DATASET_ROOT / "segmentation_test"
 SEGMENTATION_TEST_ANNOTATION_DIR = SEGMENTATION_TEST_ROOT / "ann"
@@ -302,20 +298,17 @@ def find_all_dataset_pairs(dataset_root: str | Path) -> list[tuple[Path, Path]]:
 
 
 def get_bounding_boxes_train_pairs() -> list[tuple[Path, Path]]:
-    """Return pairs from dataset/fsoco_bounding_boxes_train/iitb."""
-
-    return find_dataset_pairs(BOUNDING_BOXES_TRAIN_IMAGE_DIR, BOUNDING_BOXES_TRAIN_ANNOTATION_DIR)
+    """Return pairs from dataset/fsoco_bounding_boxes_train."""
+    return find_all_dataset_pairs(BOUNDING_BOXES_TRAIN_ROOT)
 
 
 def get_segmentation_train_pairs() -> list[tuple[Path, Path]]:
-    """Return pairs from dataset/fsoco_segmentation_train/amz."""
-
-    return find_dataset_pairs(SEGMENTATION_TRAIN_IMAGE_DIR, SEGMENTATION_TRAIN_ANNOTATION_DIR)
+    """Return pairs from dataset/fsoco_segmentation_train."""
+    return find_all_dataset_pairs(SEGMENTATION_TRAIN_ROOT)
 
 
 def get_segmentation_test_pairs() -> list[tuple[Path, Path]]:
     """Return pairs from dataset/segmentation_test."""
-
     return find_dataset_pairs(SEGMENTATION_TEST_IMAGE_DIR, SEGMENTATION_TEST_ANNOTATION_DIR)
 
 
