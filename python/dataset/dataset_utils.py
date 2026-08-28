@@ -132,6 +132,13 @@ class Box:
     def area(self) -> int:
         return (self.x_max - self.x_min) * (self.y_max - self.y_min)
 
+@dataclass(frozen=True)
+class SegmentationInstance:
+    """One cone instance with its class, bounding box, and binary mask."""
+
+    class_id: int
+    bbox: Box
+    mask: np.ndarray
 
 def class_name_to_id(class_name: str) -> int:
     """Convert an FSOCO class name to the shared segmentation class ID."""
@@ -528,6 +535,42 @@ def annotation_to_bboxes_from_masks(annotation_path: str | Path, image_height: i
     """Derive one tight bounding box per bitmap instance for test evaluation."""
 
     return annotation_to_bboxes(annotation_path, image_height, image_width, bitmap_only=True)
+
+
+def annotation_to_segmentation_instances(annotation_path: str | Path, image_height: int, image_width: int) -> list[SegmentationInstance]:
+    """Extract cone instances with their individual binary masks and bounding boxes."""
+
+    _validate_image_size(image_height, image_width)
+    annotation = load_annotation(annotation_path)
+    instances: list[SegmentationInstance] = []
+
+    for obj in annotation.get("objects", []):
+        if not isinstance(obj, dict):
+            continue
+
+        if obj.get("geometryType") != "bitmap":
+            continue
+
+        class_name = obj.get("classTitle")
+
+        if class_name is None:
+            continue
+
+        class_id = class_name_to_id(class_name)
+
+        if class_id == IGNORE_ID:
+            continue
+
+        binary_mask = bitmap_object_to_full_mask(obj, image_height, image_width)
+        coordinates = binary_mask_to_bbox(binary_mask)
+
+        if coordinates is None:
+            continue
+
+        bbox = Box(*coordinates, class_id)
+        instances.append(SegmentationInstance(class_id=class_id, bbox=bbox, mask=binary_mask))
+
+    return instances
 
 
 def generate_bbox_ground_truth_from_segmentation(dataset_root: str | Path = SEGMENTATION_TEST_ROOT, output_json_path: str | Path | None = None) -> dict[str, Any]:
