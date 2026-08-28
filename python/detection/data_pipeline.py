@@ -8,7 +8,7 @@ from pathlib import Path
 import tensorflow as tf
 import keras_cv
 
-from config import (
+from detection_config import (
     BATCH_SIZE,
     CLASS_TO_ID,
     DATASET_DIR,

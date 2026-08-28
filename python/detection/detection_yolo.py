@@ -15,7 +15,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import tensorflow as tf
 from tensorflow import keras
 
-from config import (
+from detection_config import (
     PROJECT_DIR,
     CHECKPOINT_PATH,
     DETECTIONS_PATH,

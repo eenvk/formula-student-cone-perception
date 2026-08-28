@@ -12,7 +12,7 @@ import keras_cv
 from keras_cv import bounding_box
 from keras_cv import visualization
 
-from config import (
+from detection_config import (
     CLASS_MAPPING,
     GLOBAL_CLIPNORM,
     LEARNING_RATE,
