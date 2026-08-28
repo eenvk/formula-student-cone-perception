@@ -1,3 +1,5 @@
+#renzi
+
 """Dataset extraction, preprocessing, validation, and evaluation utilities."""
 
 from __future__ import annotations
@@ -15,10 +17,11 @@ import numpy as np
 
 
 # -----------------------------------------------------------------------------
-# Dataset paths
+# Project and dataset paths
 # -----------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PYTHON_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATASET_ROOT = PROJECT_ROOT / "dataset"
 
 BOUNDING_BOXES_TRAIN_ROOT = DATASET_ROOT / "fsoco_bounding_boxes_train" / "iitb"

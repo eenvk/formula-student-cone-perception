@@ -6,19 +6,18 @@ import tensorflow as tf
 
 from dataset.dataset_utils import BACKGROUND_ID,IGNORE_ID, NUM_CLASSES, annotation_to_semantic_mask, find_all_dataset_pairs, resize_mask, train_validation_split
 from segmentation.segmentation_model import build_unet
-
 from segmentation.segmentation_config import PATCH_WIDTH,PATCH_HEIGHT,CONE_PATCH_PROBABILITY,BATCH_SIZE,EPOCHS,LEARNING_RATE,VALIDATION_FRACTION,RANDOM_SEED
 
+# -----------------------------------------------------------------------------
 # Project paths
+# -----------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-TRAIN_DATASET_DIR = PROJECT_ROOT / "dataset" / "fsoco_segmentation_train"
+TRAIN_DATASET_DIR = SEGMENTATION_TRAIN_ROOT
 
 MODEL_DIR = PROJECT_ROOT / "models"
-
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
-
 BACKUP_DIR = MODEL_DIR / "training_backup"
 
 def pad_to_patch_size(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

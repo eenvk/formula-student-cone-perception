@@ -5,20 +5,22 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from segmentation.segmentation_config import PATCH_WIDTH,PATCH_HEIGHT,BATCH_SIZE,VALIDATION_FRACTION,RANDOM_SEED,PATCH_OVERLAP,PATCH_WIDTH,PATCH_HEIGHT
-
-from dataset.dataset_utils import NUM_CLASSES,BACKGROUND_ID,SMALL_ORANGE_CONE_ID,BIG_ORANGE_CONE_ID,annotation_to_semantic_mask,create_overlay,find_all_dataset_pairs,train_validation_split
-
+from dataset.dataset_utils import BACKGROUND_ID, NUM_CLASSES, SEGMENTATION_TEST_ROOT, SEGMENTATION_TRAIN_ROOT, annotation_to_semantic_mask, create_overlay, find_all_dataset_pairs, train_validation_split
+from segmentation.segmentation_config import BATCH_SIZE, PATCH_HEIGHT, PATCH_OVERLAP, PATCH_WIDTH, RANDOM_SEED, VALIDATION_FRACTION
 from segmentation.segmentation_model import build_unet
 
 NUM_SAMPLES = 5
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# -----------------------------------------------------------------------------
+# Project paths
+# -----------------------------------------------------------------------------
 
-TRAIN_DATASET_DIR = PROJECT_ROOT / "dataset" / "fsoco_segmentation_train"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+TRAIN_DATASET_DIR = SEGMENTATION_TRAIN_ROOT
+TEST_DATASET_DIR = SEGMENTATION_TEST_ROOT
 
 WEIGHTS_PATH = PROJECT_ROOT / "models" / "unet_best.weights.h5"
-
 OUTPUT_DIR = PROJECT_ROOT / "prediction_results"
 
 
