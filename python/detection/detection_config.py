@@ -47,7 +47,8 @@ CLASS_MAPPING = {
     for class_id, class_name in enumerate(CLASS_IDS)
 }
 
-PROJECT_DIR = Path(__file__).resolve().parent
+DETECTION_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = DETECTION_DIR.parent.parent.parent
 
 DATASET_DIR = (
     PROJECT_DIR
@@ -57,5 +58,5 @@ DATASET_DIR = (
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
-CHECKPOINT_PATH = PROJECT_DIR / "best_yolov8.weights.h5"
-DETECTIONS_PATH = PROJECT_DIR / "detections.png"
+CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8.weights.h5"
+DETECTIONS_PATH = DETECTION_DIR / "detections.png"
