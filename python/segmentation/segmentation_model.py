@@ -1,67 +1,56 @@
-#novkovic
+# novkovic
+
+"""Lightweight U-Net model for cone segmentation."""
 
 import tensorflow as tf
 
+from segmentation.segmentation_config import BASE_FILTERS, DROPOUT_RATE, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH
 
-def conv_block(inputs, num_filters):
+
+def conv_block(inputs, filters):
     """Apply two convolutional layers with ReLU activation."""
 
-    x = tf.keras.layers.Conv2D(num_filters,kernel_size=3,padding="same",activation="relu")(inputs)
-
-    x = tf.keras.layers.Conv2D(num_filters,kernel_size=3,padding="same",activation="relu")(x)
+    x = tf.keras.layers.Conv2D(filters, kernel_size=3, padding="same", activation="relu")(inputs)
+    x = tf.keras.layers.Conv2D(filters, kernel_size=3, padding="same", activation="relu")(x)
 
     return x
 
 
-def encoder_block(inputs, num_filters):
-    """
-    Apply a convolutional block followed by max pooling.
+def encoder_block(inputs, filters):
+    """Apply a convolutional block followed by max pooling."""
 
-    Returns both the feature map used for the skip connection
-    and the pooled feature map passed to the next encoder level.
-    """
-
-    features = conv_block(inputs,num_filters)
-
-    pooled = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(features)
+    features = conv_block(inputs, filters)
+    pooled = tf.keras.layers.MaxPooling2D(pool_size=2)(features)
 
     return features, pooled
 
-def decoder_block(inputs,skip_features,num_filters):
-    """
-    Upsample the input, concatenate the encoder skip features,
-    and apply a convolutional block.
-    """
 
-    x = tf.keras.layers.Conv2DTranspose(num_filters,kernel_size=2,strides=2,padding="same")(inputs)
+def decoder_block(inputs, skip_features, filters):
+    """Upsample features, concatenate the skip connection, and apply convolutions."""
 
+    x = tf.keras.layers.Conv2DTranspose(filters, kernel_size=2, strides=2, padding="same")(inputs)
     x = tf.keras.layers.Concatenate()([x, skip_features])
-
-    x = conv_block(x,num_filters)
+    x = conv_block(x, filters)
 
     return x
 
 
-def build_unet(input_shape, num_classes):
+def build_unet():
+    """Build a lightweight U-Net for binary cone segmentation."""
 
-    inputs = tf.keras.layers.Input(shape=input_shape)
+    inputs = tf.keras.layers.Input(shape=(INPUT_HEIGHT, INPUT_WIDTH, INPUT_CHANNELS))
 
-    # Encoder
-    skip1, pool1 = encoder_block(inputs, 32)
-    skip2, pool2 = encoder_block(pool1, 64)
-    skip3, pool3 = encoder_block(pool2, 128)
+    skip_1, pooled_1 = encoder_block(inputs, BASE_FILTERS)
+    skip_2, pooled_2 = encoder_block(pooled_1, BASE_FILTERS * 2)
+    skip_3, pooled_3 = encoder_block(pooled_2, BASE_FILTERS * 4)
 
-    # Bottleneck
-    bottleneck = conv_block(pool3, 256)
+    bottleneck = conv_block(pooled_3, BASE_FILTERS * 8)
+    bottleneck = tf.keras.layers.Dropout(DROPOUT_RATE)(bottleneck)
 
-    # Decoder
-    decoder1 = decoder_block(bottleneck, skip3, 128)
-    decoder2 = decoder_block(decoder1, skip2, 64)
-    decoder3 = decoder_block(decoder2, skip1, 32)
+    decoded_3 = decoder_block(bottleneck, skip_3, BASE_FILTERS * 4)
+    decoded_2 = decoder_block(decoded_3, skip_2, BASE_FILTERS * 2)
+    decoded_1 = decoder_block(decoded_2, skip_1, BASE_FILTERS)
 
-    # Pixel-wise classification
-    outputs = tf.keras.layers.Conv2D(num_classes, kernel_size=1, activation="softmax")(decoder3)
+    outputs = tf.keras.layers.Conv2D(1, kernel_size=1, activation="sigmoid")(decoded_1)
 
-    model = tf.keras.Model(inputs=inputs, outputs=outputs, name="unet")
-
-    return model
+    return tf.keras.Model(inputs=inputs, outputs=outputs, name="cone_unet")
