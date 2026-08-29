@@ -24,16 +24,18 @@ NUM_PARALLEL_CALLS = 2
 EVAL_EVERY = 5
 VALIDATION_FREQ = 5
 
-CLASS_IDS = [
-    "blue_cone",
-    "yellow_cone",
-    "orange_cone",
-    "large_orange_cone",
-    "unknown_cone",
-]
-
 RESUME_TRAINING = False
 RESUME_FROM_EPOCH = 0
+
+CLASS_IDS = [
+    "yellow_cone",
+    "blue_cone",
+    "orange_cone",
+    "large_orange_cone",
+]
+
+RESUME_TRAINING = True
+RESUME_FROM_EPOCH = 15
 
 NUM_CLASSES = len(CLASS_IDS)
 
@@ -58,5 +60,5 @@ DATASET_DIR = (
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
-CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8.weights.h5"
+CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8_4classes.weights.h5"
 DETECTIONS_PATH = DETECTION_DIR / "detections.png"

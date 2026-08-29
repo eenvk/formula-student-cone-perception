@@ -132,6 +132,9 @@ def parse_annotation(json_path: Path):
     for obj in objects:
         class_name = obj["classTitle"]
 
+        if class_name == "unknown_cone":
+            continue
+
         if class_name not in CLASS_TO_ID:
             raise ValueError(
                 f"Unknown class '{class_name}' in:\n"
@@ -398,6 +401,9 @@ def build_datasets():
         num_parallel_calls=NUM_PARALLEL_CALLS,
         deterministic=False,
     )
+
+    for images, y_true in train_ds.take(1):
+        print(y_true["classes"])
 
     # ============================================================
     # VALIDATION DATASET PROCESSING

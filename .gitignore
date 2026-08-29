@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+#no model
+.weights.h5
+
 # C extensions
 *.so
 
