@@ -7,7 +7,7 @@ from pathlib import Path
 SEED = 2026
 
 SPLIT_RATIO = 0.20
-BATCH_SIZE = 6
+BATCH_SIZE = 4
 LEARNING_RATE = 0.001
 EPOCHS = 25
 GLOBAL_CLIPNORM = 10.0
@@ -24,12 +24,14 @@ NUM_PARALLEL_CALLS = 2
 EVAL_EVERY = 5
 VALIDATION_FREQ = 5
 
+RESUME_TRAINING = False
+RESUME_FROM_EPOCH = 0
+
 CLASS_IDS = [
-    "blue_cone",
     "yellow_cone",
+    "blue_cone",
     "orange_cone",
     "large_orange_cone",
-    "unknown_cone",
 ]
 
 RESUME_TRAINING = True
@@ -48,7 +50,7 @@ CLASS_MAPPING = {
 }
 
 DETECTION_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = DETECTION_DIR.parent.parent.parent
+PROJECT_DIR = DETECTION_DIR.parent.parent
 
 DATASET_DIR = (
     PROJECT_DIR
@@ -58,5 +60,5 @@ DATASET_DIR = (
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
-CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8.weights.h5"
+CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8_4classes.weights.h5"
 DETECTIONS_PATH = DETECTION_DIR / "detections.png"
