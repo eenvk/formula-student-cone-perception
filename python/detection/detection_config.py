@@ -7,7 +7,7 @@ from pathlib import Path
 SEED = 2026
 
 SPLIT_RATIO = 0.20
-BATCH_SIZE = 6
+BATCH_SIZE = 4
 LEARNING_RATE = 0.001
 EPOCHS = 25
 GLOBAL_CLIPNORM = 10.0
@@ -32,8 +32,8 @@ CLASS_IDS = [
     "unknown_cone",
 ]
 
-RESUME_TRAINING = True
-RESUME_FROM_EPOCH = 15
+RESUME_TRAINING = False
+RESUME_FROM_EPOCH = 0
 
 NUM_CLASSES = len(CLASS_IDS)
 
@@ -48,7 +48,7 @@ CLASS_MAPPING = {
 }
 
 DETECTION_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = DETECTION_DIR.parent.parent.parent
+PROJECT_DIR = DETECTION_DIR.parent.parent
 
 DATASET_DIR = (
     PROJECT_DIR
