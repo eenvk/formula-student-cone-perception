@@ -1,9 +1,9 @@
 import tensorflow as tf
 from keras_cv import bounding_box
 
-from detection_config import CHECKPOINT_PATH, SEED
-from data_pipeline import build_datasets
-from model_utils import create_model
+from detection.detection_config import CHECKPOINT_PATH, SEED
+from detection.data_pipeline import build_datasets
+from detection.model_utils import create_model
 
 from dataset.dataset_utils import (
     Box,
@@ -16,15 +16,62 @@ from evaluation.evaluation_utils import (
     ClassificationEvaluator,
 )
 
-def predictions_to_boxes(boxes, classes, scores):
-    return [
-        prediction_to_box(bbox, class_id, score)
-        for bbox, class_id, score in zip(
-            boxes,
-            classes,
-            scores,
+def predictions_to_boxes(
+    boxes,
+    classes,
+    scores,
+    image_width,
+    image_height,
+):
+    result = []
+
+    for bbox, class_id, score in zip(
+        boxes,
+        classes,
+        scores,
+    ):
+        class_id = int(class_id)
+
+        if class_id == 1:
+            class_id = 0
+        elif class_id == 0:
+            class_id = 1
+        
+        # Checkpoint has 5 outputs, but only
+        # detection classes 0-3 are evaluated.
+        if class_id not in (0, 1, 2, 3):
+            continue
+
+        x_min, y_min, x_max, y_max = [
+            float(value)
+            for value in bbox
+        ]
+
+        # Clip predictions to image boundaries.
+        x_min = max(0.0, min(x_min, image_width))
+        y_min = max(0.0, min(y_min, image_height))
+        x_max = max(0.0, min(x_max, image_width))
+        y_max = max(0.0, min(y_max, image_height))
+
+        # prediction_to_box() rounds to integers.
+        # Check the rounded box first to avoid zero-area boxes.
+        rx_min = int(round(x_min))
+        ry_min = int(round(y_min))
+        rx_max = int(round(x_max))
+        ry_max = int(round(y_max))
+
+        if rx_max <= rx_min or ry_max <= ry_min:
+            continue
+
+        result.append(
+            prediction_to_box(
+                [rx_min, ry_min, rx_max, ry_max],
+                class_id,
+                score,
+            )
         )
-    ]
+
+    return result
 
 def ground_truth_to_boxes(boxes, classes):
     result = []
@@ -96,6 +143,9 @@ def evaluate_model(model, val_ds):
             verbose=0,
         )
 
+        image_height = int(images.shape[1])
+        image_width = int(images.shape[2])
+
         y_true = bounding_box.to_ragged(
             y_true
         )
@@ -117,6 +167,8 @@ def evaluate_model(model, val_ds):
                 y_pred["boxes"][i].numpy(),
                 y_pred["classes"][i].numpy(),
                 y_pred["confidence"][i].numpy(),
+                image_width,
+                image_height
             )
 
             detection_evaluator.update(
@@ -140,12 +192,13 @@ def main():
 
     _, val_ds = build_datasets()
 
-    model = create_model()
+    model = create_model(num_classes=5)
 
     model.load_weights(
         str(CHECKPOINT_PATH)
     )
 
+    
     detection_report, classification_report = (
         evaluate_model(
             model,

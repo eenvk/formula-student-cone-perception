@@ -12,7 +12,7 @@ import keras_cv
 from keras_cv import bounding_box
 from keras_cv import visualization
 
-from detection_config import (
+from detection.detection_config import (
     CLASS_MAPPING,
     GLOBAL_CLIPNORM,
     LEARNING_RATE,
@@ -53,7 +53,7 @@ def configure_gpu():
         )
 
 
-def create_model():
+def create_model(num_classes=None):
     """
     Creates and compiles a YOLOv8 object detection model.
     
@@ -66,6 +66,10 @@ def create_model():
     Returns:
         keras.Model: Compiled YOLOv8 detector model ready for training
     """
+    if num_classes is None:
+        num_classes = NUM_CLASSES
+
+    print("Number of classes", num_classes)
     print("\nLoading YOLOv8 backbone...")
 
     backbone = (
@@ -77,7 +81,7 @@ def create_model():
     print("Backbone loaded.")
 
     model = keras_cv.models.YOLOV8Detector(
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
         bounding_box_format="xyxy",
         backbone=backbone,
         fpn_depth=1, #parameter to catch object at different dim. might be increased to 2/3 (more memory needed)

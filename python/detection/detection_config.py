@@ -60,5 +60,5 @@ DATASET_DIR = (
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
-CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8_4classes.weights.h5"
+CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8.weights.h5"
 DETECTIONS_PATH = DETECTION_DIR / "detections.png"

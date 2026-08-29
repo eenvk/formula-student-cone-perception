@@ -8,7 +8,7 @@ from pathlib import Path
 import tensorflow as tf
 import keras_cv
 
-from detection_config import (
+from detection.detection_config import (
     BATCH_SIZE,
     CLASS_TO_ID,
     DATASET_DIR,
@@ -402,8 +402,6 @@ def build_datasets():
         deterministic=False,
     )
 
-    for images, y_true in train_ds.take(1):
-        print(y_true["classes"])
 
     # ============================================================
     # VALIDATION DATASET PROCESSING
