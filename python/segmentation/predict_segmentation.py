@@ -1,4 +1,4 @@
-# novkovic
+#novkovic
 
 """Cone segmentation inference from detected bounding boxes."""
 
