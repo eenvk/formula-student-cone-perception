@@ -43,18 +43,17 @@ def create_crop_box(box: Box, image_height: int, image_width: int, rng: random.R
     return x_min, y_min, x_max, y_max
 
 
-def letterbox_sample(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Resize an image and mask while preserving their aspect ratio."""
+def letterbox_sample(image: np.ndarray, mask: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray | None, tuple[int, int, int, int]]:
+    """Resize an image and optional mask while preserving their aspect ratio."""
 
-    crop_height, crop_width = image.shape[:2]
+    image_height, image_width = image.shape[:2]
 
-    scale = min(INPUT_WIDTH / crop_width, INPUT_HEIGHT / crop_height)
+    scale = min(INPUT_WIDTH / image_width, INPUT_HEIGHT / image_height)
 
-    resized_width = max(1, int(round(crop_width * scale)))
-    resized_height = max(1, int(round(crop_height * scale)))
+    resized_width = max(1, int(round(image_width * scale)))
+    resized_height = max(1, int(round(image_height * scale)))
 
     resized_image = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
-    resized_mask = cv2.resize(mask, (resized_width, resized_height), interpolation=cv2.INTER_NEAREST)
 
     horizontal_padding = INPUT_WIDTH - resized_width
     vertical_padding = INPUT_HEIGHT - resized_height
@@ -64,11 +63,17 @@ def letterbox_sample(image: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, n
     top_padding = vertical_padding // 2
     bottom_padding = vertical_padding - top_padding
 
-    image = cv2.copyMakeBorder(resized_image, top_padding, bottom_padding, left_padding, right_padding, cv2.BORDER_REPLICATE)
-    mask = cv2.copyMakeBorder(resized_mask, top_padding, bottom_padding, left_padding, right_padding, cv2.BORDER_CONSTANT, value=0)
+    padded_image = cv2.copyMakeBorder(resized_image, top_padding, bottom_padding, left_padding, right_padding, cv2.BORDER_REPLICATE)
 
-    return image, mask
+    padded_mask = None
 
+    if mask is not None:
+        resized_mask = cv2.resize(mask, (resized_width, resized_height), interpolation=cv2.INTER_NEAREST)
+        padded_mask = cv2.copyMakeBorder(resized_mask, top_padding, bottom_padding, left_padding, right_padding, cv2.BORDER_CONSTANT, value=0)
+
+    metadata = (top_padding, left_padding, resized_height, resized_width)
+
+    return padded_image, padded_mask, metadata
 
 def apply_geometric_augmentation(image: np.ndarray, mask: np.ndarray, rng: random.Random) -> tuple[np.ndarray, np.ndarray]:
     """Apply synchronized geometric augmentation to an image and its mask."""
@@ -121,7 +126,7 @@ def prepare_instance_sample(image_rgb: np.ndarray, instance, rng: random.Random,
     image_crop = image_rgb[y_min:y_max, x_min:x_max]
     mask_crop = instance.mask[y_min:y_max, x_min:x_max].astype(np.uint8)
 
-    image_crop, mask_crop = letterbox_sample(image_crop, mask_crop)
+    image_crop, mask_crop, _ = letterbox_sample(image_crop, mask_crop)
 
     if training:
         image_crop, mask_crop = apply_geometric_augmentation(image_crop, mask_crop, rng)
