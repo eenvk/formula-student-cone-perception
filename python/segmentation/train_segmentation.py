@@ -11,7 +11,7 @@ from segmentation.segmentation_model import build_unet
 
 
 MODEL_DIR = PROJECT_ROOT / "models"
-BEST_WEIGHTS_PATH = MODEL_DIR / "unet_bce_best.weights.h5"
+BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 BACKUP_DIR = MODEL_DIR / "training_backup"
 
 '''
