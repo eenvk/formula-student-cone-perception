@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow as tf
 
 from dataset.dataset_utils import Box, annotation_to_segmentation_instances, get_segmentation_train_pairs, load_image, train_validation_split
-from segmentation.segmentation_config import BATCH_SIZE, BBOX_CENTER_JITTER, BBOX_PADDING_MAX, BBOX_PADDING_MIN, BRIGHTNESS_JITTER, CONTRAST_JITTER, HORIZONTAL_FLIP_PROBABILITY, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH, MAX_ROTATION_DEGREES, RANDOM_SEED, SATURATION_JITTER, VALIDATION_FRACTION
+from segmentation.segmentation_config import BATCH_SIZE, BBOX_CENTER_JITTER, BBOX_PADDING_MAX, BBOX_PADDING_MIN, BRIGHTNESS_JITTER, CONTRAST_JITTER, HORIZONTAL_FLIP_PROBABILITY, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH, MAX_ROTATION_DEGREES, RANDOM_SEED, SATURATION_JITTER, VALIDATION_FRACTION,ROTATION_PROBABILITY,COLOR_AUGMENTATION_PROBABILITY
 
 
 def create_crop_box(box: Box, image_height: int, image_width: int, rng: random.Random, training: bool) -> tuple[int, int, int, int]:
@@ -82,9 +82,9 @@ def apply_geometric_augmentation(image: np.ndarray, mask: np.ndarray, rng: rando
         image = cv2.flip(image, 1)
         mask = cv2.flip(mask, 1)
 
-    angle = rng.uniform(-MAX_ROTATION_DEGREES, MAX_ROTATION_DEGREES)
+    if rng.random() < ROTATION_PROBABILITY:
+        angle = rng.uniform(-MAX_ROTATION_DEGREES, MAX_ROTATION_DEGREES)
 
-    if angle != 0.0:
         image_height, image_width = image.shape[:2]
         center = (image_width / 2.0, image_height / 2.0)
         rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
@@ -109,6 +109,7 @@ def apply_color_augmentation(image: np.ndarray, rng: random.Random) -> np.ndarra
     image = np.clip(image_float, 0.0, 255.0).astype(np.uint8)
 
     saturation_factor = rng.uniform(1.0 - SATURATION_JITTER, 1.0 + SATURATION_JITTER)
+
     hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV).astype(np.float32)
     hsv_image[:, :, 1] *= saturation_factor
     hsv_image[:, :, 1] = np.clip(hsv_image[:, :, 1], 0.0, 255.0)
@@ -130,7 +131,9 @@ def prepare_instance_sample(image_rgb: np.ndarray, instance, rng: random.Random,
 
     if training:
         image_crop, mask_crop = apply_geometric_augmentation(image_crop, mask_crop, rng)
-        image_crop = apply_color_augmentation(image_crop, rng)
+
+        if rng.random() < COLOR_AUGMENTATION_PROBABILITY:
+            image_crop = apply_color_augmentation(image_crop, rng)
 
     image_crop = image_crop.astype(np.float32) / 255.0
     mask_crop = mask_crop.astype(np.float32)
