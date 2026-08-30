@@ -9,7 +9,7 @@ SEED = 2026
 SPLIT_RATIO = 0.20
 BATCH_SIZE = 4
 LEARNING_RATE = 0.001
-EPOCHS = 25
+EPOCHS = 35
 GLOBAL_CLIPNORM = 10.0
 
 IMAGE_SIZE = (800, 800)
@@ -33,9 +33,6 @@ CLASS_IDS = [
     "orange_cone",
     "large_orange_cone",
 ]
-
-RESUME_TRAINING = True
-RESUME_FROM_EPOCH = 15
 
 NUM_CLASSES = len(CLASS_IDS)
 

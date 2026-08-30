@@ -27,9 +27,9 @@ from detection.detection_config import (
     RESUME_FROM_EPOCH
 )
 
-from data_pipeline import build_datasets
+from detection.data_pipeline import build_datasets
 
-from model_utils import (
+from detection.model_utils import (
     EvaluateCOCOMetricsCallback,
     configure_gpu,
     create_model,
@@ -61,6 +61,7 @@ def main():
     # ========================================================
 
     model = create_model()
+    print("Build model with", model.num_classes, "classes")
 
     # ========================================================
     # TRAINING
