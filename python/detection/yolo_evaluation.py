@@ -36,11 +36,6 @@ def predictions_to_boxes(boxes, classes, scores, image_width, image_height):
     ):
         class_id = int(class_id)
 
-        if class_id == 1:
-            class_id = 0
-        elif class_id == 0:
-            class_id = 1
-        
         # Checkpoint has 5 outputs, but only
         # detection classes 0-3 are evaluated.
         if class_id not in (0, 1, 2, 3):
@@ -312,7 +307,7 @@ def main():
 
     test_ds = build_test_dataset()
 
-    model = create_model(num_classes=5)
+    model = create_model(num_classes=4)
 
     model.load_weights(
         str(CHECKPOINT_PATH)

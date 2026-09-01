@@ -157,7 +157,7 @@ class EvaluateCOCOMetricsCallback(
 
         print("Validation...")
         for images, y_true in self.data:
-            y_pred = self.model.predict(images)
+            y_pred = self.model.predict(images, verbose=0)
 
             y_true = bounding_box.to_ragged(y_true)
             y_pred = bounding_box.to_ragged(y_pred)
@@ -214,10 +214,7 @@ def visualize_detections(model, dataset, output_path):
         iter(dataset.take(1))
     )
 
-    y_pred = model.predict(
-        images,
-        verbose=0,
-    )
+    y_pred = model.predict(images, verbose=0)
 
     y_pred = bounding_box.to_ragged(
         y_pred
