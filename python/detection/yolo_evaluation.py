@@ -1,51 +1,45 @@
-import tensorflow as tf
 import keras_cv
-
-from detection.detection_config import (
-    CHECKPOINT_PATH,
-    SEED,
-    IMAGE_SIZE,
-    BATCH_SIZE,
-)
-from detection.data_pipeline import (
-    load_dataset,
-    dict_to_tuple,
-)
-from detection.model_utils import create_model
+import tensorflow as tf
 
 from dataset.dataset_utils import (
     Box,
-    prediction_to_box,
+    DETECTION_ID_TO_NAME,
+    detection_id_to_segmentation_id,
     get_segmentation_test_pairs,
+    prediction_to_box,
+    load_cv_image,
     annotation_to_instances,
-    load_image as load_cv_image,
+    segmentation_id_to_detection_id,
+)
+from detection.data_pipeline import (
+    dict_to_tuple,
+    load_dataset,
+)
+from detection.detection_config import (
+    BATCH_SIZE,
+    CHECKPOINT_PATH,
+    IMAGE_SIZE,
+    SEED,
+)
+from detection.model_utils import create_model
+from evaluation.evaluation_utils import (
+    ClassificationEvaluator,
+    DetectionEvaluator,
 )
 
-from evaluation.evaluation_utils import (
-    DetectionEvaluator,
-    ClassificationEvaluator,
-)
 
 def predictions_to_boxes(boxes, classes, scores, image_width, image_height):
+    """Convert model output into validated shared Box instances."""
+
     result = []
 
-    for bbox, class_id, score in zip(
-        boxes,
-        classes,
-        scores,
-    ):
+    for bbox, class_id, score in zip(boxes, classes, scores):
         class_id = int(class_id)
 
-        # Checkpoint has 5 outputs, but only
-        # detection classes 0-3 are evaluated.
-        if class_id not in (0, 1, 2, 3):
+        if class_id not in DETECTION_ID_TO_NAME:
             continue
 
-        x_min, y_min, x_max, y_max = [
-            float(value)
-            for value in bbox
-        ]
-
+        x_min, y_min, x_max, y_max = [float(value) for value in bbox]
         # Clip predictions to image boundaries.
         x_min = max(0.0, min(x_min, image_width))
         y_min = max(0.0, min(y_min, image_height))
@@ -72,18 +66,20 @@ def predictions_to_boxes(boxes, classes, scores, image_width, image_height):
 
     return result
 
+
 def ground_truth_to_boxes(boxes, classes):
+    """Convert resized detection targets into shared Box instances."""
+
     result = []
 
-    for bbox, class_id in zip(boxes, classes):
-        shared_id = int(class_id)
+    for bbox, detection_class_id in zip(boxes, classes):
+        detection_class_id = int(detection_class_id)
 
-        # Only the four evaluated cone classes.
-        if shared_id not in (1, 2, 3, 4):
+        if detection_class_id not in DETECTION_ID_TO_NAME:
             continue
 
         x_min, y_min, x_max, y_max = [
-            float(value)
+            int(round(float(value)))
             for value in bbox
         ]
 
@@ -96,35 +92,28 @@ def ground_truth_to_boxes(boxes, classes):
                 y_min=y_min,
                 x_max=x_max,
                 y_max=y_max,
-                class_id=shared_id,
-                score=None,
+                class_id=detection_id_to_segmentation_id(detection_class_id),
             )
         )
 
     return result
 
-def evaluate_model(model, test_ds):
-    detection_evaluator = DetectionEvaluator()
 
-    classification_evaluator = ClassificationEvaluator(
-        iou_threshold=0.5
-    )
+def evaluate_model(model, test_ds):
+    """Evaluate detection and classification metrics over a test dataset."""
+
+    detection_evaluator = DetectionEvaluator()
+    classification_evaluator = ClassificationEvaluator(iou_threshold=0.5)
 
     # the model takes each image from the set and it predicts the classification
     # and the detection
     for images, y_true in test_ds:
-
-        y_pred = model.predict(
-            images,
-            verbose=0,
-        )
-
+        y_pred = model.predict(images, verbose=0)
         image_height = int(images.shape[1])
         image_width = int(images.shape[2])
 
         y_true = keras_cv.bounding_box.to_ragged(y_true)
         y_pred = keras_cv.bounding_box.to_ragged(y_pred)
-
         # y_true and y_pred are ragged tensors with the following structure:
         # {
         #     "boxes": tensor of shape (num_boxes, 4) with [x_min, y_min, x_max, y_max],
@@ -134,18 +123,11 @@ def evaluate_model(model, test_ds):
         # each element in the batch can be accessed by index: y_true["boxes"][i]
         # each image have its number of cones with corrisponding boxes and classes
 
-
-        batch_size = images.shape[0]
-
-        for i in range(batch_size):
-
-            # bring to box type the gt of the dataset
+        for i in range(images.shape[0]):
             gt_boxes = ground_truth_to_boxes(
                 y_true["boxes"][i].numpy(),
                 y_true["classes"][i].numpy(),
             )
-
-            # bring to box type the predictions of the dataset
             pred_boxes = predictions_to_boxes(
                 y_pred["boxes"][i].numpy(),
                 y_pred["classes"][i].numpy(),
@@ -154,41 +136,27 @@ def evaluate_model(model, test_ds):
                 image_height
             )
 
-            detection_evaluator.update(
-                gt_boxes,
-                pred_boxes,
-            )
-
-            classification_evaluator.update(
-                gt_boxes,
-                pred_boxes,
-            )
+            detection_evaluator.update(gt_boxes, pred_boxes)
+            classification_evaluator.update(gt_boxes, pred_boxes)
 
     return (
         detection_evaluator.report(),
         classification_evaluator.report(),
     )
 
-def build_test_dataset():
-    """
-    Build the detection/classification test dataset from the
-    segmentation test set.
 
-    Ground-truth bounding boxes are derived automatically
-    from the segmentation bitmap masks.
-    """
+def build_test_dataset():
+    """Build test targets from segmentation bitmaps via dataset_utils."""
 
     pairs = get_segmentation_test_pairs()
-
-    print(f"\nTest image/annotation pairs found: {len(pairs)}")
+    print()
+    print("Test image/annotation pairs found:", len(pairs))
 
     image_paths = []
     all_boxes = []
     all_classes = []
-
     total_objects = 0
-
-    print("\nReading test annotations and deriving bounding boxes...")
+    print("Reading test annotations and deriving bounding boxes...")
 
     for image_path, annotation_path in pairs:
 
@@ -226,7 +194,7 @@ def build_test_dataset():
         ]
 
         classes = [
-            instance.class_id
+            segmentation_id_to_detection_id(instance.class_id)
             for instance in instances
         ]
 
@@ -269,7 +237,6 @@ def build_test_dataset():
         load_dataset,
         num_parallel_calls=tf.data.AUTOTUNE,
     )
-
     data = data.ragged_batch(
         BATCH_SIZE,
         drop_remainder=False,
@@ -284,63 +251,58 @@ def build_test_dataset():
         scale_factor=(1.0, 1.0),
         bounding_box_format="xyxy",
     )
-
     data = data.map(
         test_resizing,
         num_parallel_calls=tf.data.AUTOTUNE,
     )
-
     data = data.map(
         dict_to_tuple,
         num_parallel_calls=tf.data.AUTOTUNE,
     )
+    return data.prefetch(tf.data.AUTOTUNE)
 
-    data = data.prefetch(
-        tf.data.AUTOTUNE
-    )
-
-    return data
 
 def main():
-
     tf.keras.utils.set_random_seed(SEED)
-
     test_ds = build_test_dataset()
 
-    model = create_model(num_classes=4)
+    model = create_model()
+    model.load_weights(str(CHECKPOINT_PATH))
 
-    model.load_weights(
-        str(CHECKPOINT_PATH)
+    detection_report, classification_report = evaluate_model(
+        model,
+        test_ds,
     )
 
-    
-    detection_report, classification_report = (
-        evaluate_model(
-            model,
-            test_ds,
-        )
-    )
-
-    print("\n==============================")
+    print()
+    print("==============================")
     print("DETECTION EVALUATION")
     print("==============================")
 
-    # iterate in each class the mean average precision (0.5:0.95)
-    for class_name, ap in detection_report["AP@0.5:0.95_per_class"].items():
-        # format name length to 20 chars and mAP with 4 decimals
+    for class_name, ap in detection_report[
+        "AP@0.5:0.95_per_class"
+    ].items():
         print(f"{class_name:20s}: {ap:.4f}")
 
-    # print mAP of each class
-    print("\nmAP@0.5:0.95:",f"{detection_report['mAP@0.5:0.95']:.4f}",)
+    print(
+        "mAP@0.5:0.95:",
+        f"{detection_report['mAP@0.5:0.95']:.4f}",
+    )
 
-    print("\n==============================")
+    print()
+    print("==============================")
     print("CLASSIFICATION EVALUATION")
     print("==============================")
 
-    for class_name, f1 in classification_report["f1_per_class"].items():
+    for class_name, f1 in classification_report[
+        "f1_per_class"
+    ].items():
         print(f"{class_name:20s}: {f1:.4f}")
 
-    print("\nMacro F1:", f"{classification_report['macro_f1']:.4f}",)
+    print(
+        "Macro F1:",
+        f"{classification_report['macro_f1']:.4f}",
+    )
 
 
 if __name__ == "__main__":
