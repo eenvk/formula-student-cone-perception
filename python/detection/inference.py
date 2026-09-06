@@ -1,5 +1,4 @@
 import cv2
-import keras_cv
 import numpy as np
 import tensorflow as tf
 
@@ -163,7 +162,6 @@ def global_nms(predictions):
 
     return selected
 
-
 def predict_patch(
     patch_rgb,
     model,
@@ -194,13 +192,17 @@ def predict_patch(
         verbose=0
     )
 
-    prediction = keras_cv.bounding_box.to_ragged(
-        prediction
-    )
+    boxes = prediction["boxes"][0]
+    classes = prediction["classes"][0]
+    scores = prediction["confidence"][0]
 
-    boxes = prediction["boxes"][0].numpy()
-    classes = prediction["classes"][0].numpy()
-    scores = prediction["confidence"][0].numpy()
+    # Keep only valid detections if YOLO provides their number.
+    if "num_detections" in prediction:
+        num_detections = int(prediction["num_detections"][0])
+
+        boxes = boxes[:num_detections]
+        classes = classes[:num_detections]
+        scores = scores[:num_detections]
 
     results = []
 
@@ -221,9 +223,6 @@ def predict_patch(
             for value in bbox
         ]
 
-        # A boundary patch may contain black padding.
-        # Predictions must therefore be clipped to the real
-        # part of the image.
         x_min = max(0.0, min(x_min, valid_width))
         y_min = max(0.0, min(y_min, valid_height))
         x_max = max(0.0, min(x_max, valid_width))
@@ -232,7 +231,6 @@ def predict_patch(
         if x_max <= x_min or y_max <= y_min:
             continue
 
-        # Local patch coordinates -> original image coordinates.
         global_box = [
             x_min + offset_x,
             y_min + offset_y,
@@ -371,6 +369,6 @@ def predict_boxes(image_bgr, model) -> list[Box]:
 
         result.append(box)
 
-        print(result)
+        # print(result)
 
     return result
