@@ -6,6 +6,9 @@ __pycache__/
 #no model
 .weights.h5
 
+patch_inference/
+predicted_images/
+
 # C extensions
 *.so
 
