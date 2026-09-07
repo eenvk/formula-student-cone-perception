@@ -1,8 +1,7 @@
-#novkovic
+#Novkovic
 
 '''Dataset pipeline for cone segmentation that transforms the original dataset
-in (img, mask) samples that can be given as input to the U net.
-'''
+in (img, mask) samples that can be given as input to the U net.'''
 
 from pathlib import Path
 import random
@@ -202,7 +201,7 @@ def create_segmentation_dataset(pairs: Sequence[tuple[Path, Path]], training: bo
 
     return dataset
 
-#Creates the final datasets used by the training script
+'''Creates the final datasets used by the training script'''
 def create_train_validation_datasets() -> tuple[tf.data.Dataset, tf.data.Dataset]:
 
     pairs = get_segmentation_train_pairs()
