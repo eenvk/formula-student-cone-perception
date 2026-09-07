@@ -697,13 +697,7 @@ def predict_boxes(image_bgr, model) -> list[Box]:
             float(score)
         )
 
-    # No detections.
-    if len(final_boxes) == 0:
-        return {
-            "boxes": tf.zeros((0, 4), dtype=tf.float32),
-            "classes": tf.zeros((0,), dtype=tf.float32),
-            "confidence": tf.zeros((0,), dtype=tf.float32)
-        }
+        result.append(box)
 
     return result
 
