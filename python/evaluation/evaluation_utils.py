@@ -180,36 +180,74 @@ class ClassificationEvaluator:
             if pred_class in self.false_positive:
                 self.false_positive[pred_class] += 1
 
-    def per_class_f1(self) -> dict[int, float]:
-        """Return F1 for every cone class."""
+    def per_class_f1(self) -> dict[int, dict[str, float]]:
+        """Return precision, recall and F1 for every cone class."""
 
-        result: dict[int, float] = {}
+        result: dict[int, dict[str, float]] = {}
 
         for class_id in self.class_ids:
             true_positive = self.true_positive[class_id]
             false_positive = self.false_positive[class_id]
             false_negative = self.false_negative[class_id]
-            precision = true_positive / (true_positive + false_positive) if true_positive + false_positive > 0 else 0.0
-            recall = true_positive / (true_positive + false_negative) if true_positive + false_negative > 0 else 0.0
-            result[class_id] = 2.0 * precision * recall / (precision + recall) if precision + recall > 0.0 else 0.0
+
+            precision = (
+                true_positive / (true_positive + false_positive)
+                if true_positive + false_positive > 0
+                else 0.0
+            )
+
+            recall = (
+                true_positive / (true_positive + false_negative)
+                if true_positive + false_negative > 0
+                else 0.0
+            )
+
+            f1 = (
+                2.0 * precision * recall / (precision + recall)
+                if precision + recall > 0.0
+                else 0.0
+            )
+
+            result[class_id] = {
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+            }
 
         return result
+
 
     def macro_f1(self) -> float:
         """Return the unweighted mean F1 across cone classes."""
 
-        values = list(self.per_class_f1().values())
+        values = [
+            metrics["f1"]
+            for metrics in self.per_class_f1().values()
+        ]
+
         return float(np.mean(values)) if values else float("nan")
 
-    def report(self) -> dict[str, Any]:
-        """Return named per-class F1 values and macro F1."""
 
-        f1_per_class = self.per_class_f1()
+    def report(self) -> dict[str, Any]:
+        """Return named per-class precision, recall, F1 and macro F1."""
+
+        metrics_per_class = self.per_class_f1()
+
         return {
-            "f1_per_class": {CLASS_ID_TO_NAME[class_id]: f1_per_class[class_id] for class_id in self.class_ids},
+            "precision_per_class": {
+                CLASS_ID_TO_NAME[class_id]: metrics_per_class[class_id]["precision"]
+                for class_id in self.class_ids
+            },
+            "recall_per_class": {
+                CLASS_ID_TO_NAME[class_id]: metrics_per_class[class_id]["recall"]
+                for class_id in self.class_ids
+            },
+            "f1_per_class": {
+                CLASS_ID_TO_NAME[class_id]: metrics_per_class[class_id]["f1"]
+                for class_id in self.class_ids
+            },
             "macro_f1": self.macro_f1(),
         }
-
 
 # -----------------------------------------------------------------------------
 # Detection evaluation: COCO-style mAP@0.5:0.95
