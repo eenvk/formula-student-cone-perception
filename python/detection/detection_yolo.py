@@ -18,7 +18,6 @@ from tensorflow import keras
 from detection.detection_config import (
     PROJECT_DIR,
     CHECKPOINT_PATH,
-    DETECTIONS_PATH,
     EPOCHS,
     EVAL_EVERY,
     SEED,
@@ -27,10 +26,10 @@ from detection.detection_config import (
     RESUME_FROM_EPOCH
 )
 
-from detection.data_pipeline import build_datasets
+from detection.data_pipeline import build_train_val_datasets
 
 from detection.model_utils import (
-    EvaluateCOCOMetricsCallback,
+    InferenceValidation,
     configure_gpu,
     create_model,
     visualize_detections,
@@ -50,23 +49,14 @@ def main():
 
     configure_gpu()
 
-    # ========================================================
     # DATASET
-    # ========================================================
+    train_ds, val_loss_ds, val_inference_ds = build_train_val_datasets()
 
-    train_ds, val_ds = build_datasets()
-
-    # ========================================================
     # MODEL
-    # ========================================================
-
     model = create_model()
     print("Build model with", model.num_classes, "classes")
 
-    # ========================================================
     # TRAINING
-    # ========================================================
-
     if RESUME_TRAINING:
         print(
             f"\nResuming training from epoch "
@@ -80,8 +70,8 @@ def main():
         print("Checkpoint loaded successfully.")
         
     callbacks = [
-        EvaluateCOCOMetricsCallback(
-            val_ds,
+        InferenceValidation(
+            val_inference_ds,
             CHECKPOINT_PATH,
             eval_every=EVAL_EVERY,
         ),
@@ -97,7 +87,7 @@ def main():
 
     history = model.fit(
         train_ds,
-        validation_data=val_ds,
+        validation_data=val_loss_ds,
 
         initial_epoch=(
             RESUME_FROM_EPOCH

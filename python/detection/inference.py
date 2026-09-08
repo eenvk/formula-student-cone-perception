@@ -465,7 +465,7 @@ def global_nms_patch_aware(predictions, image_width, image_height):
     return selected    
 
 # Patch-based inference
-def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
+def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE, save_debug=False):
     """
     Runs patch-based inference on an original-resolution RGB image.
 
@@ -566,7 +566,7 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
 
             # Remove low-confidence detections.
             if score < CONFIDENCE_THRESHOLD:
-                print("detect a bad confidence in img" )
+                # print("detect a bad confidence in img" )
                 continue
 
             x_min, y_min, x_max, y_max = [
@@ -606,7 +606,8 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
                 "patch_valid_height": valid_height,
             })
 
-    save_predictions_before_nms(image, all_predictions)
+    if save_debug:
+        save_predictions_before_nms(image, all_predictions)
 
     # 5. GLOBAL NMS
     # Reuse the already tested class-aware NMS.
@@ -647,15 +648,19 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
 
 def resize_with_letterbox(image, target_size):
     target_h, target_w = target_size
-    image_height, image_width = image.shape[:2]
 
-    scale = min(
+    image_shape = tf.shape(image)
+
+    image_height = tf.cast(image_shape[0], tf.float32)
+    image_width = tf.cast(image_shape[1], tf.float32)
+
+    scale = tf.minimum(
         target_w / image_width,
         target_h / image_height,
     )
 
-    resized_h = round(image_height * scale)
-    resized_w = round(image_width * scale)
+    resized_h = tf.round(image_height * scale)
+    resized_w = tf.round(image_width * scale)
 
     pad_y = (target_h - resized_h) // 2
     pad_x = (target_w - resized_w) // 2
@@ -672,6 +677,10 @@ def predict_total_image(model, image):
 
     image_height, image_width = image.shape[:2]
     image, scale, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
+
+    scale = float(scale.numpy())
+    pad_x = float(pad_x.numpy())
+    pad_y = float(pad_y.numpy())
 
     #adding batch dimension because model requires (batch, dim) dimension
     image = tf.expand_dims(image, axis=0)
@@ -706,7 +715,7 @@ def predict_total_image(model, image):
 
         # Remove low-confidence detections.
         if score < CONFIDENCE_THRESHOLD:
-            print("detect a bad confidence in img" )
+            # print("detect a bad confidence in img" )
             continue
 
         x_min, y_min, x_max, y_max = [
@@ -867,4 +876,3 @@ def predict_boxes(image_bgr, model) -> list[Box]:
         result.append(box)
 
     return result
-

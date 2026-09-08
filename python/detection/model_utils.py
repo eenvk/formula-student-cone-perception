@@ -1,6 +1,4 @@
-# ============================================================
-# YOLO MODEL, METRICS AND VISUALIZATION
-# ============================================================
+# tino
 
 from pathlib import Path
 
@@ -17,6 +15,10 @@ from detection.detection_config import (
     GLOBAL_CLIPNORM,
     LEARNING_RATE,
     NUM_CLASSES,
+)
+
+from detection.inference import (
+    predict_image_with_patches
 )
 
 
@@ -104,20 +106,14 @@ def create_model(num_classes=None):
     return model
 
 
-class EvaluateCOCOMetricsCallback(
-    keras.callbacks.Callback
-):
+class InferenceValidation(keras.callbacks.Callback):
     """
-    Keras callback for evaluating COCO metrics during training.
-    
-    This callback computes COCO metrics (mAP - mean Average Precision) on validation
-    data at regular intervals during training. It tracks the best performing model
-    and automatically saves weights when validation mAP improves.
+    Keras callback for inference the validation set.
     """
 
-    def __init__(self, data, save_path, eval_every=1):
+    def __init__(self, data, save_path, eval_every=10):
         """
-        Initializes the COCO metrics callback.
+        Initializes the callback.
         
         Args:
             data: Validation dataset to evaluate on (batched)
@@ -143,9 +139,6 @@ class EvaluateCOCOMetricsCallback(
         """
         Called at the end of each training epoch.
         
-        Computes COCO metrics on validation data if the current epoch matches
-        the evaluation frequency. Saves model weights if mAP improves.
-        
         Args:
             epoch: Current epoch number
             logs: Dictionary with training metrics (updated with COCO metrics)
@@ -155,17 +148,26 @@ class EvaluateCOCOMetricsCallback(
 
         self.metrics.reset_state()
 
-        print("Validation...")
-        for images, y_true in self.data:
-            y_pred = self.model.predict(images, verbose=0)
+        print("Inference on validation set...")
+        for sample in self.data:
+            image = sample["images"]
+            y_true = sample["bounding_boxes"]
 
+            y_pred = predict_image_with_patches(self.model, image)
+
+            y_true = {
+                "boxes": tf.expand_dims(y_true["boxes"], axis=0),
+                "classes": tf.expand_dims(y_true["classes"], axis=0),
+            }
+            y_pred = {"boxes": tf.expand_dims(y_pred["boxes"], axis=0),
+                "classes": tf.expand_dims(y_pred["classes"], axis=0),
+                "confidence": tf.expand_dims(y_pred["confidence"], axis=0)
+            }
+            
             y_true = bounding_box.to_ragged(y_true)
             y_pred = bounding_box.to_ragged(y_pred)
 
-            self.metrics.update_state(
-                y_true,
-                y_pred,
-            )
+            self.metrics.update_state(y_true, y_pred)
 
         raw_metrics = self.metrics.result(force=True)
 
@@ -182,7 +184,7 @@ class EvaluateCOCOMetricsCallback(
 
         current_map = metric_values["MaP"]
 
-        print(f"\nValidation mAP: " f"{current_map:.5f}")
+        print(f"\Inference mAP: " f"{current_map:.5f}")
 
         if current_map > self.best_map:
             self.best_map = current_map

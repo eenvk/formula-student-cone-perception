@@ -1,12 +1,19 @@
+#tino
+
 import tensorflow as tf
 import keras_cv
+import cv2
+
+from detection.inference import (
+    resize_with_letterbox
+)
 
 from dataset.dataset_utils import (
     get_bounding_boxes_train_pairs,
     train_validation_split,
     annotation_to_instances,
     segmentation_id_to_detection_id,
-    load_image as load_cv_image,
+    load_image,
     load_annotation
 )
 
@@ -139,14 +146,8 @@ def load_dataset(image_path, classes, bbox):
     image = load_image(image_path)
 
     bounding_boxes = {
-        "classes": tf.cast(
-            classes,
-            tf.float32,
-        ),
-        "boxes": tf.cast(
-            bbox,
-            tf.float32,
-        ),
+        "classes": tf.cast(classes, tf.float32),
+        "boxes": tf.cast(bbox, tf.float32)
     }
 
     return {
@@ -174,25 +175,28 @@ def dict_to_tuple(inputs):
     )
 
 
-def build_datasets():
+def build_train_val_datasets():
     """
     Builds training and validation datasets from the complete dataset.
     
     Creates TensorFlow datasets by:
     1. Collecting all image-annotation pairs
-    2. Parsing annotations to extract bounding boxes and classes
-    3. Splitting data into training and validation sets
+    2. Splitting data into training and validation sets
+    3. Parsing annotations to extract bounding boxes and classes
     4. Applying data augmentation and preprocessing to training data
     5. Batching and prefetching for efficient training
     
     Returns:
         tuple: (train_ds, val_ds) TensorFlow datasets ready for training
     """
+
+    # 1. pairs of the type: [image_dir, annotation_dir]
     pairs = get_bounding_boxes_train_pairs()
     num_samples = len(pairs)
 
-    print(f"\nImage/annotation pairs found: {len(pairs)}")
+    print(f"\nImage/annotation pairs found: {num_samples}")
 
+    # 2.
     train_pairs, val_pairs = train_validation_split(pairs, SPLIT_RATIO, SEED)
     print("Train pairs: ", len(train_pairs))
     print("Val pairs: ", len(val_pairs))
@@ -200,17 +204,20 @@ def build_datasets():
     num_train = len(train_pairs)
     num_val = len(val_pairs)
 
+    # 3.
     print("Reading annotations ...")
     train_image_paths, train_classes, train_bboxes = prepare_dataset_data(train_pairs)
     val_image_paths, val_classes, val_bboxes = prepare_dataset_data(val_pairs)
 
     print("\nDataset loaded.")
     print("Images:", train_image_paths.shape)
-    print("Bounding boxes:", train_bboxes.shape)
     print("Classes:", train_classes.shape)
+    print("Bounding boxes:", train_bboxes.shape)
 
     # Create a TensorFlow dataset by combining image paths, classes, and bounding boxes
     # from_tensor_slices creates a dataset where each element is a slice of the inputs
+    # now the structure of the dataset is:
+    # elem 0: (path, list_of_class, list_of_boxes)
     train_data = tf.data.Dataset.from_tensor_slices(
         (
             train_image_paths,
@@ -231,23 +238,27 @@ def build_datasets():
     print("\nTraining samples:", num_train)
     print("Validation samples:", num_val)
 
+    train_ds = build_train_dataset(train_data, num_train)
+    val_loss_ds = build_val_loss_dataset(val_data)
+    val_inference_ds = build_val_inference_dataset(val_data)
+
+
+
+    return train_ds, val_loss_ds, val_inference_ds
+
+
+def build_train_dataset(train_data, num_train):
     # Shuffle the training samples at each epoch.
     train_data = train_data.shuffle(
-        buffer_size=len(train_pairs),
+        buffer_size=num_train,
         seed=SEED,
         reshuffle_each_iteration=True
     )
 
-        # Jittered Resize is used to resize with a casual variability
+    # Jittered Resize is used to resize with a casual variability
     train_resizing = keras_cv.layers.JitteredResize(
         target_size=IMAGE_SIZE,
         scale_factor=(0.75, 1.30), #range of rescaling
-        bounding_box_format="xyxy",
-    )
-
-    val_resizing = keras_cv.layers.JitteredResize(
-        target_size=IMAGE_SIZE,
-        scale_factor=(1.0, 1.0),
         bounding_box_format="xyxy",
     )
 
@@ -257,11 +268,11 @@ def build_datasets():
         deterministic=False,
     )
 
-    train_ds = train_ds.ragged_batch(BATCH_SIZE,drop_remainder=True)
-
     # Raggruppa gli elementi in batch dopo aver caricato le immagini
     # I batch permettono di processare più immagini insieme sulla GPU (più efficiente)
     # drop_remainder=True: scarta gli ultimi elementi se non fanno un batch completo
+    train_ds = train_ds.ragged_batch(BATCH_SIZE,drop_remainder=True)
+
 
     # Applica resizing e data augmentation DOPO batching
     # Questo è più efficiente: resizziamo interi batch, non singole immagini
@@ -272,51 +283,80 @@ def build_datasets():
         deterministic=False,
     )
 
-
-    # ============================================================
-    # VALIDATION DATASET PROCESSING
-    # ============================================================
-    
-    val_ds = val_data.map(load_dataset, num_parallel_calls=1)
-    
-    # Batch senza scartare elementi (drop_remainder=False)
-    # Vogliamo valutare su TUTTI i dati di validazione
-    val_ds = val_ds.ragged_batch(BATCH_SIZE, drop_remainder=False)
-    
-    # Applica resizing DETERMINISTICO (1.0-1.0 = nessuna variabilità)
-    # La validazione deve essere coerente e ripetibile
-    val_ds = val_ds.map(
-        val_resizing,
-        num_parallel_calls=1,
-    )
-
-    # ============================================================
     # FORMAT CONVERSION
-    # ============================================================
     # Converte il formato da dict a tuple per compatibilità con il modello
     # Il modello si aspetta input come (images, bounding_boxes), non come dizionario
-
     train_ds = train_ds.map(
         dict_to_tuple,
         num_parallel_calls=NUM_PARALLEL_CALLS,
         deterministic=False,
     )
-
-    val_ds = val_ds.map(
-        dict_to_tuple,
-        num_parallel_calls=1,
-    )
-
-    # Prefetch prepares data in advance while the model is training
+        # Prefetch prepares data in advance while the model is training
     # it reduces the waiting time
     # PREFETCH_BUFFER è grande per training, piccolo (1) per validazione
     
     train_ds = train_ds.prefetch(PREFETCH_BUFFER)
-    val_ds = val_ds.prefetch(1)
 
     train_options = tf.data.Options()
     train_options.experimental_deterministic = False
 
     train_ds = train_ds.with_options(train_options)
 
-    return train_ds, val_ds
+
+    return train_ds
+
+def resize_validation_sample(inputs):
+    image = inputs["images"]
+    boxes = inputs["bounding_boxes"]["boxes"]
+    classes = inputs["bounding_boxes"]["classes"]
+
+    image, scale, pad_x, pad_y = resize_with_letterbox(
+        image,
+        IMAGE_SIZE,
+    )
+
+    boxes = tf.cast(boxes, tf.float32)
+
+    x_min = boxes[:, 0] * scale + tf.cast(pad_x, tf.float32)
+    y_min = boxes[:, 1] * scale + tf.cast(pad_y, tf.float32)
+    x_max = boxes[:, 2] * scale + tf.cast(pad_x, tf.float32)
+    y_max = boxes[:, 3] * scale + tf.cast(pad_y, tf.float32)
+
+    boxes = tf.stack(
+        [x_min, y_min, x_max, y_max],
+        axis=-1,
+    )
+
+    return {
+        "images": image,
+        "bounding_boxes": {
+            "classes": classes,
+            "boxes": boxes,
+        }
+    }
+
+def build_val_loss_dataset(val_data):
+
+    val_ds = val_data.map(
+        load_dataset,
+        num_parallel_calls=1,
+    )
+
+    val_ds = val_ds.map(resize_validation_sample, num_parallel_calls=1)
+
+    val_ds = val_ds.ragged_batch(BATCH_SIZE, drop_remainder=False)
+    val_ds = val_ds.map(dict_to_tuple, num_parallel_calls=1)
+
+    val_ds = val_ds.prefetch(1)
+
+    return val_ds
+
+def build_val_inference_dataset(val_data):
+    val_ds = val_data.map(
+        load_dataset,
+        num_parallel_calls = 1
+    )
+
+    val_ds = val_ds.prefetch(1)
+    return val_ds
+
