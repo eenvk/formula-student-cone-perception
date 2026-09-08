@@ -1,6 +1,6 @@
-#novkovic
+#Novkovic
 
-"""Train the U-Net model for cone segmentation."""
+#Training process of the U-Net model.
 
 import tensorflow as tf
 
@@ -14,37 +14,12 @@ MODEL_DIR = PROJECT_ROOT / "models"
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 BACKUP_DIR = MODEL_DIR / "training_backup"
 
-'''
-def dice_coefficient(y_true, y_pred, smooth=1e-6):
-    """Compute the Dice coefficient."""
-
-    y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
-
-    intersection = tf.reduce_sum(y_true * y_pred, axis=(1, 2, 3))
-    denominator = tf.reduce_sum(y_true, axis=(1, 2, 3)) + tf.reduce_sum(y_pred, axis=(1, 2, 3))
-    dice = (2.0 * intersection + smooth) / (denominator + smooth)
-
-    return tf.reduce_mean(dice)
-
-
-def dice_loss(y_true, y_pred):
-    """Compute the Dice loss."""
-
-    return 1.0 - dice_coefficient(y_true, y_pred)
-
-
-def combined_loss(y_true, y_pred):
-    """Combine binary cross-entropy and Dice loss."""
-
-    binary_crossentropy = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    binary_crossentropy = tf.reduce_mean(binary_crossentropy)
-
-    return 0.5 * binary_crossentropy + 0.5 * dice_loss(y_true, y_pred)
 
 '''
+Creates the model directory, loads the training and validation datasets, 
+builds the U-Net, compiles it with the Adam optimizer and Binary Cross-Entropy loss, 
+and starts the training process.'''
 def main():
-    """Train the cone segmentation model."""
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
