@@ -88,7 +88,7 @@ def create_model(num_classes=None):
     )
 
     print("\nYOLOv8 detector created.")
-    model.summary()
+    # model.summary()
 
     optimizer = tf.keras.optimizers.Adam(
         learning_rate=LEARNING_RATE,

@@ -110,16 +110,6 @@ def main():
         validation_freq=VALIDATION_FREQ,
     )
 
-    # ========================================================
-    # VISUALIZE PREDICTIONS
-    # ========================================================
-
-    visualize_detections(
-        model,
-        val_ds,
-        DETECTIONS_PATH,
-    )
-
     return history
 
 
