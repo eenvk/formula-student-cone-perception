@@ -566,6 +566,7 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
 
             # Remove low-confidence detections.
             if score < CONFIDENCE_THRESHOLD:
+                print("detect a bad confidence in img" )
                 continue
 
             x_min, y_min, x_max, y_max = [
@@ -575,20 +576,12 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
 
             # Clip to the real part of the patch.
             # This removes predictions that fall inside padding.
-            x_min = max(0.0, min(x_min, valid_width))
-            y_min = max(0.0, min(y_min, valid_height))
-            x_max = max(0.0, min(x_max, valid_width))
-            y_max = max(0.0, min(y_max, valid_height))
+            x_min, y_min, x_max, y_max = clip_coordinates(valid_height, valid_width, x_min, y_min, x_max, y_max)
 
             if x_max <= x_min or y_max <= y_min:
                 continue
 
-            local_box = [
-                x_min,
-                y_min,
-                x_max,
-                y_max
-            ]
+            local_box = [x_min, y_min, x_max, y_max]
 
             # Convert patch coordinates to coordinates
             # of the original image.
@@ -629,10 +622,7 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
         x_min, y_min, x_max, y_max = prediction["bbox"]
 
         # Final safety clipping to original image dimensions.
-        x_min = max(0.0, min(x_min, image_width))
-        y_min = max(0.0, min(y_min, image_height))
-        x_max = max(0.0, min(x_max, image_width))
-        y_max = max(0.0, min(y_max, image_height))
+        x_min, y_min, x_max, y_max = clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max)
 
         if x_max <= x_min or y_max <= y_min:
             continue
@@ -650,19 +640,197 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE):
         }
 
     return {
-        "boxes": tf.constant(
-            final_boxes,
-            dtype=tf.float32
-        ),
-        "classes": tf.constant(
-            final_classes,
-            dtype=tf.float32
-        ),
-        "confidence": tf.constant(
-            final_scores,
-            dtype=tf.float32
-        ),
+        "boxes": tf.constant(final_boxes, dtype=tf.float32),
+        "classes": tf.constant(final_classes, dtype=tf.float32),
+        "confidence": tf.constant(final_scores, dtype=tf.float32)
     }
+
+def resize_with_letterbox(image, target_size):
+    target_h, target_w = target_size
+    image_height, image_width = image.shape[:2]
+
+    scale = min(
+        target_w / image_width,
+        target_h / image_height,
+    )
+
+    resized_h = round(image_height * scale)
+    resized_w = round(image_width * scale)
+
+    pad_y = (target_h - resized_h) // 2
+    pad_x = (target_w - resized_w) // 2
+
+    image = tf.image.resize_with_pad(image, target_h, target_w,)
+
+    return image, scale, pad_x, pad_y
+
+def predict_total_image(model, image):
+    # Validation images are TensorFlow tensors.
+    # extract_patch() already works with NumPy arrays.
+    if tf.is_tensor(image):
+        image = image.numpy()
+
+    image_height, image_width = image.shape[:2]
+    image, scale, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
+
+    #adding batch dimension because model requires (batch, dim) dimension
+    image = tf.expand_dims(image, axis=0)
+
+    # Batch inference
+    predictions = model.predict(
+        image,
+        batch_size=1,
+        # verbose=0
+    )
+
+    boxes = predictions["boxes"][0]
+    classes = predictions["classes"][0]
+    scores = predictions["confidence"][0]
+
+    # If available, keep only actual detections.
+    if "num_detections" in predictions:
+        num_detections = int(predictions["num_detections"][0])
+
+        boxes = boxes[:num_detections]
+        classes = classes[:num_detections]
+        scores = scores[:num_detections]
+
+    final_boxes = []
+    final_classes = []
+    final_scores = []
+
+    for bbox, class_id, score in zip(boxes, classes, scores):
+        # Remove invalid classes.
+        if class_id not in DETECTION_ID_TO_NAME:
+            continue
+
+        # Remove low-confidence detections.
+        if score < CONFIDENCE_THRESHOLD:
+            print("detect a bad confidence in img" )
+            continue
+
+        x_min, y_min, x_max, y_max = [
+            float(value)
+            for value in bbox
+        ]
+
+        if x_max <= x_min or y_max <= y_min:
+            continue
+
+
+        # bring image to initial value
+        x_min = (x_min - pad_x) / scale
+        y_min = (y_min - pad_y) / scale
+        x_max = (x_max - pad_x) / scale
+        y_max = (y_max - pad_y) / scale
+
+        # Clip to original image.
+        x_min, y_min, x_max, y_max = clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max)
+
+        final_boxes.append([x_min, y_min, x_max, y_max])
+        final_classes.append(class_id)
+        final_scores.append(score)
+
+    # No detections.
+    if len(final_boxes) == 0:
+        return {
+            "boxes": tf.zeros((0, 4), dtype=tf.float32),
+            "classes": tf.zeros((0,), dtype=tf.float32),
+            "confidence": tf.zeros((0,), dtype=tf.float32)
+        }
+
+    return {
+        "boxes": tf.constant(final_boxes, dtype=tf.float32),
+        "classes": tf.constant(final_classes, dtype=tf.float32),
+        "confidence": tf.constant(final_scores, dtype=tf.float32)
+    } 
+
+def clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max):
+    x_min = max(0.0, min(x_min, image_width))
+    y_min = max(0.0, min(y_min, image_height))
+    x_max = max(0.0, min(x_max, image_width))
+    y_max = max(0.0, min(y_max, image_height))
+    return x_min,y_min,x_max,y_max   
+
+def tensor_predictions_to_list(predictions):
+    converted_predictions = []
+
+    for bbox, class_id, score in zip(
+        predictions["boxes"],
+        predictions["classes"],
+        predictions["confidence"],
+    ):
+        prediction = {
+            "bbox": bbox.numpy().tolist(),
+            "class_id": int(class_id),
+            "score": float(score),
+        }
+
+        converted_predictions.append(prediction)
+
+    return converted_predictions
+
+def final_nms(patch_predictions, total_predictions, image_width, image_height):
+    """
+    Resolve duplicates between patch-based predictions
+    and full-image predictions.
+
+    Patch-vs-patch predictions have already been handled by
+    global_nms_patch_aware().
+
+    Total-vs-total predictions have already been handled by
+    the model decoder.
+
+    Therefore only patch-vs-total conflicts are considered.
+    """
+
+    selected_patch = []
+    selected_total = []
+
+    used_total = set()
+
+    patch_predictions = tensor_predictions_to_list(patch_predictions)
+    total_predictions = tensor_predictions_to_list(total_predictions)
+
+    for patch_prediction in patch_predictions:
+        suppress_patch = False
+
+        for total_index, total_prediction in enumerate(total_predictions):
+            if total_index in used_total:
+                continue
+
+            iou = calculate_iou(patch_prediction["bbox"], total_prediction["bbox"])
+            containment = calculate_containment(patch_prediction["bbox"], total_prediction["bbox"])
+
+            # Different classes kept if the the containment is not almost complete
+            if (patch_prediction["class_id"] != total_prediction["class_id"]):
+                if (containment < GLOBAL_CROSS_CONTAINMENT_THRESHOLD):
+                    continue
+
+            # same class and similar IoU or Containment
+            if (iou < GLOBAL_NMS_IOU_THRESHOLD and containment < GLOBAL_CONTAINMENT_THRESHOLD):
+                continue
+
+            # the ones that survives: keep the best
+            if (total_prediction["score"] > patch_prediction["score"]):
+                selected_total.append(total_prediction)
+                used_total.add(total_index)
+                suppress_patch = True
+                break
+
+            # Patch prediction has higher confidence.
+            used_total.add(total_index)
+
+        if not suppress_patch:
+            selected_patch.append(patch_prediction)
+
+    # Add total predictions that never conflicted
+    # with a patch prediction.
+    for total_index, total_prediction in enumerate(total_predictions):
+        if total_index not in used_total:
+            selected_total.append(total_prediction)
+
+    return selected_patch + selected_total
 
 # wrapper
 def predict_boxes(image_bgr, model) -> list[Box]:
@@ -681,20 +849,19 @@ def predict_boxes(image_bgr, model) -> list[Box]:
 
     # Test images are loaded with OpenCV -> BGR.
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    prediction = predict_image_with_patches(model, image_rgb)
+    prediction_patch = predict_image_with_patches(model, image_rgb)
+    prediction_total = predict_total_image(model, image_rgb)
+
+    predictions = final_nms(prediction_patch, prediction_total, image_rgb.shape[1], image_rgb.shape[0])
 
     result = []
 
-    for bbox, class_id, score in zip(
-        prediction["boxes"],
-        prediction["classes"],
-        prediction["confidence"]
-    ):
+    for prediction in predictions:
 
         box = prediction_to_box(
-            bbox.numpy().tolist(),
-            int(class_id),
-            float(score)
+            prediction["bbox"],
+            prediction["class_id"],
+            prediction["score"],
         )
 
         result.append(box)
