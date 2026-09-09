@@ -786,7 +786,7 @@ def predict_views_in_batches(model, images, batch_size):
 
         predictions = model.predict(
             images[start:end],
-            verbose=0
+            # verbose=0
         )
 
         batch_predictions.append(predictions)
@@ -860,53 +860,90 @@ def ensure_prediction_list(predictions):
         return predictions
     return tensor_predictions_to_list(predictions)
 
+def postprocess_inference_dataset(raw_predictions, metadata):
+    if not metadata:
+        return []
 
-def predict_combined_batched(model, images):
+    num_views = len(metadata)
+    num_predictions = len(raw_predictions["boxes"])
 
-    all_views = []
-    all_metadata = []
-    image_shapes = []
+    if num_views != num_predictions:
+        raise ValueError(
+            f"Predictions/metadata mismatch: "
+            f"{num_predictions} predictions for {num_views} views."
+        )
 
-    for image_index, image in enumerate(images):
-        views, metadata = create_combined_views(image)
+    num_images = max(
+        item["image_index"] for item in metadata
+    ) + 1
 
-        for item in metadata:
-            item["image_index"] = image_index
+    patch_predictions = [
+        [] for _ in range(num_images)
+    ]
 
-        all_views.append(views)
-        all_metadata.extend(metadata)
-        image_shapes.append(image.shape[:2])
+    full_predictions = [
+        [] for _ in range(num_images)
+    ]
 
-    all_views = np.concatenate(all_views, axis=0)
+    # --------------------------------------------------
+    # 1. Convert every view prediction back to
+    #    original-image coordinates
+    # --------------------------------------------------
 
-    raw_predictions = model.predict(
-        all_views,
-        batch_size=PATCH_BATCH_SIZE
-    )
+    for view_index, view_metadata in enumerate(metadata):
 
-    patch_predictions = []
-    total_predictions = []
+        image_index = view_metadata["image_index"]
 
-    for view_index, metadata in enumerate(all_metadata):
+        image_width = view_metadata["image_width"]
+        image_height = view_metadata["image_height"]
 
-        image_index = metadata["image_index"]
-        image_height, image_width = image_shapes[image_index]
+        if view_metadata["is_patch"]:
 
-        if metadata["is_patch"]:
             patch_predictions[image_index].extend(
-                process_patch_view(
-                    raw_predictions,
-                    view_index,
-                    metadata
-                )
+                process_patch_view(raw_predictions, view_index, view_metadata)
             )
+
         else:
-            total_predictions[image_index].extend(
-                process_full_view(
-                    raw_predictions,
-                    view_index,
-                    metadata,
-                    image_width,
-                    image_height
-                )
+
+            full_predictions[image_index].extend(
+                process_full_view(raw_predictions, view_index, view_metadata, image_width, image_height)
             )
+
+    # --------------------------------------------------
+    # 2. NMS independently for every original image
+    # --------------------------------------------------
+
+    final_predictions = []
+
+    for image_index in range(num_images):
+
+        # All metadata belonging to the same image have
+        # the same original image dimensions.
+        image_metadata = next(
+            item
+            for item in metadata
+            if item["image_index"] == image_index
+        )
+
+        image_width = image_metadata["image_width"]
+        image_height = image_metadata["image_height"]
+
+        image_patch_predictions = global_nms_patch_aware(patch_predictions[image_index],image_width,image_height)
+
+        image_final_predictions = final_nms(image_patch_predictions, full_predictions[image_index], image_width, image_height)
+
+        final_predictions.append([
+            prediction_to_box(
+                prediction["bbox"],
+                prediction["class_id"],
+                prediction["score"],
+            )
+            for prediction in image_final_predictions
+        ])
+        
+    return final_predictions
+
+def predict_inference_dataset(model, inference_ds, metadata):
+    raw_predictions = model.predict(inference_ds)
+
+    return postprocess_inference_dataset(raw_predictions, metadata)

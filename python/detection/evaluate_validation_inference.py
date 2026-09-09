@@ -15,6 +15,16 @@ from detection.detection_config import (
     SPLIT_RATIO,
 )
 
+from detection.data_pipeline import (
+    prepare_dataset_data,
+    build_inference_dataset,
+    build_inference_metadata,
+)
+
+from detection.inference import (
+    predict_inference_dataset,
+)
+
 from detection.model_utils import create_model
 from detection.inference import predict_boxes
 
@@ -25,19 +35,6 @@ from evaluation.evaluation_utils import (
 
 
 def evaluate_model(model, validation_pairs, limit=None):
-    """
-    Evaluate the complete inference pipeline on the validation split.
-
-    Pipeline:
-        original image
-        -> create patch views + full-image view
-        -> single model.predict()
-        -> patch post-processing
-        -> full-image post-processing
-        -> patch NMS
-        -> final patch-vs-full-image NMS
-        -> detection/classification evaluation
-    """
 
     detection_evaluator = DetectionEvaluator()
 
@@ -51,6 +48,42 @@ def evaluate_model(model, validation_pairs, limit=None):
     total_gt = 0
     total_predictions = 0
 
+    # ======================================================
+    # 1. BUILD DATASET
+    # ======================================================
+
+    (
+        image_paths,
+        _,
+        _,
+        image_shapes,
+    ) = prepare_dataset_data(validation_pairs)
+
+    inference_ds = build_inference_dataset(
+        image_paths
+    )
+
+    metadata = build_inference_metadata(
+        image_shapes
+    )
+
+    print("Images:", len(validation_pairs))
+    print("Views:", len(metadata))
+
+    # ======================================================
+    # 2. INFERENCE - UNA SOLA VOLTA
+    # ======================================================
+
+    predictions = predict_inference_dataset(
+        model,
+        inference_ds,
+        metadata
+    )
+
+    # ======================================================
+    # 3. EVALUATION
+    # ======================================================
+
     for index, (image_path, annotation_path) in enumerate(validation_pairs):
 
         print(
@@ -58,34 +91,18 @@ def evaluate_model(model, validation_pairs, limit=None):
             f"{image_path.name}"
         )
 
-        # Original image
         image_bgr = load_image(image_path)
 
         image_height, image_width = image_bgr.shape[:2]
 
-        # Ground truth in original-image coordinates
         gt_boxes = annotation_to_instances(
             annotation_path,
             image_height,
             image_width,
         )
 
-        # Complete combined inference.
-        #
-        # predict_boxes() performs:
-        # 1. BGR -> RGB conversion
-        # 2. patch creation
-        # 3. full-image letterbox creation
-        # 4. one model.predict() over all views
-        # 5. patch post-processing
-        # 6. full-image post-processing
-        # 7. patch-aware NMS
-        # 8. final patch-vs-full-image NMS
-        # 9. conversion to shared Box representation
-        pred_boxes = predict_boxes(
-            image_bgr,
-            model
-        )
+        # NON facciamo più predict qui
+        pred_boxes = predictions[index]
 
         total_gt += len(gt_boxes)
         total_predictions += len(pred_boxes)

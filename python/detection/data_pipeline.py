@@ -3,6 +3,7 @@
 import tensorflow as tf
 import keras_cv
 import cv2
+import numpy as np
 
 from detection.inference import (
     resize_with_letterbox
@@ -17,6 +18,12 @@ from dataset.dataset_utils import (
     load_annotation
 )
 
+from detection.inference import (
+    resize_with_letterbox,
+    create_combined_views,
+    get_patch_starts
+)
+
 from detection.detection_config import (
     BATCH_SIZE,
     IMAGE_SIZE,
@@ -24,6 +31,8 @@ from detection.detection_config import (
     PREFETCH_BUFFER,
     SEED,
     SPLIT_RATIO,
+    PATCH_BATCH_SIZE,
+    PATCH_STRIDE
 )
 
 def prepare_dataset_data(pairs):
@@ -35,6 +44,7 @@ def prepare_dataset_data(pairs):
     image_paths = []
     all_boxes = []
     all_classes = []
+    image_shapes = []
 
     for image_path, annotation_path in pairs:
 
@@ -46,11 +56,7 @@ def prepare_dataset_data(pairs):
 
         # dataset_utils parses the JSON, removes unknown_cone
         # and returns the bounding boxes.
-        instances = annotation_to_instances(
-            annotation_path,
-            image_height,
-            image_width
-        )
+        instances = annotation_to_instances(annotation_path, image_height, image_width)
 
         boxes = []
         classes = []
@@ -75,6 +81,7 @@ def prepare_dataset_data(pairs):
         image_paths.append(str(image_path))
         all_boxes.append(boxes)
         all_classes.append(classes)
+        image_shapes.append([image_height, image_width])
 
     image_paths = tf.constant(
         image_paths,
@@ -93,7 +100,9 @@ def prepare_dataset_data(pairs):
         ragged_rank=1
     )
 
-    return image_paths, classes, bbox
+    image_shapes = tf.constant(image_shapes, dtype= tf.int32)
+
+    return image_paths, classes, bbox, image_shapes
 
 
 @tf.function
@@ -206,8 +215,8 @@ def build_train_val_datasets():
 
     # 3.
     print("Reading annotations ...")
-    train_image_paths, train_classes, train_bboxes = prepare_dataset_data(train_pairs)
-    val_image_paths, val_classes, val_bboxes = prepare_dataset_data(val_pairs)
+    train_image_paths, train_classes, train_bboxes, _ = prepare_dataset_data(train_pairs)
+    val_image_paths, val_classes, val_bboxes, val_image_shapes = prepare_dataset_data(val_pairs)
 
     print("\nDataset loaded.")
     print("Images:", train_image_paths.shape)
@@ -240,11 +249,12 @@ def build_train_val_datasets():
 
     train_ds = build_train_dataset(train_data, num_train)
     val_loss_ds = build_val_loss_dataset(val_data)
-    val_inference_ds = build_val_inference_dataset(val_data)
+    val_inference_ds = build_inference_dataset(val_data)
+
+    val_inference_metadata = build_inference_metadata(val_image_shapes)
 
 
-
-    return train_ds, val_loss_ds, val_inference_ds
+    return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata
 
 
 def build_train_dataset(train_data, num_train):
@@ -310,22 +320,16 @@ def resize_validation_sample(inputs):
     boxes = inputs["bounding_boxes"]["boxes"]
     classes = inputs["bounding_boxes"]["classes"]
 
-    image, scale, pad_x, pad_y = resize_with_letterbox(
-        image,
-        IMAGE_SIZE,
-    )
+    image, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
 
     boxes = tf.cast(boxes, tf.float32)
 
-    x_min = boxes[:, 0] * scale + tf.cast(pad_x, tf.float32)
-    y_min = boxes[:, 1] * scale + tf.cast(pad_y, tf.float32)
-    x_max = boxes[:, 2] * scale + tf.cast(pad_x, tf.float32)
-    y_max = boxes[:, 3] * scale + tf.cast(pad_y, tf.float32)
+    x_min = boxes[:, 0] * scale_x + tf.cast(pad_x, tf.float32)
+    y_min = boxes[:, 1] * scale_y + tf.cast(pad_y, tf.float32)
+    x_max = boxes[:, 2] * scale_x + tf.cast(pad_x, tf.float32)
+    y_max = boxes[:, 3] * scale_y + tf.cast(pad_y, tf.float32)
 
-    boxes = tf.stack(
-        [x_min, y_min, x_max, y_max],
-        axis=-1,
-    )
+    boxes = tf.stack([x_min, y_min, x_max, y_max], axis=-1)
 
     return {
         "images": image,
@@ -351,12 +355,139 @@ def build_val_loss_dataset(val_data):
 
     return val_ds
 
-def build_val_inference_dataset(val_data):
-    val_ds = val_data.map(
-        load_dataset,
-        num_parallel_calls = 1
+def _create_combined_views_numpy(image):
+    image = image.numpy()
+    views, _ = create_combined_views(image)
+
+    return views.astype(np.float32)
+
+def create_inference_views(image_path):
+    image = load_image(image_path)
+
+    views = tf.py_function(
+        func=_create_combined_views_numpy,
+        inp=[image],
+        Tout=tf.float32,
     )
 
-    val_ds = val_ds.prefetch(1)
-    return val_ds
+    views.set_shape([
+        None,
+        IMAGE_SIZE[0],
+        IMAGE_SIZE[1],
+        3,
+    ])
 
+    return views
+
+def build_inference_dataset(image_paths):
+    ds = tf.data.Dataset.from_tensor_slices(
+        image_paths
+    )
+
+    ds = ds.map(
+        create_inference_views,
+        num_parallel_calls=1,
+    )
+
+    # prima:
+    # elemento 0 -> [N0, 800, 800, 3]
+    # elemento 1 -> [N1, 800, 800, 3]
+    #
+    # dopo:
+    # view 0 -> [800, 800, 3]
+    # view 1 -> [800, 800, 3]
+    # ...
+
+    ds = ds.unbatch()
+
+    ds = ds.batch(
+        PATCH_BATCH_SIZE,
+        drop_remainder=False,
+    )
+
+    ds = ds.prefetch(1)
+
+    return ds
+
+def build_inference_metadata(image_shapes):
+    all_metadata = []
+
+    patch_height, patch_width = IMAGE_SIZE
+    target_height, target_width = IMAGE_SIZE
+
+    for image_index, shape in enumerate(image_shapes.numpy()):
+
+        image_height = int(shape[0])
+        image_width = int(shape[1])
+
+        x_starts = get_patch_starts(image_width, patch_width, PATCH_STRIDE)
+        y_starts = get_patch_starts(image_height, patch_height, PATCH_STRIDE)
+
+        local_view_index = 0
+
+        # PATCHES
+        for y_start in y_starts:
+            for x_start in x_starts:
+
+                valid_width = min(
+                    patch_width,
+                    image_width - x_start
+                )
+
+                valid_height = min(
+                    patch_height,
+                    image_height - y_start
+                )
+
+                all_metadata.append({
+                    "view_index": len(all_metadata),
+                    "image_index": image_index,
+                    "local_view_index": local_view_index,
+
+                    "is_patch": True,
+
+                    "offset_x": x_start,
+                    "offset_y": y_start,
+
+                    "valid_width": valid_width,
+                    "valid_height": valid_height,
+
+                    "image_width": image_width,
+                    "image_height": image_height,
+                })
+
+                local_view_index += 1
+
+        # FULL IMAGE
+        scale = min(
+            target_width / image_width,
+            target_height / image_height
+        )
+
+        resized_width = int(np.round(image_width * scale))
+        resized_height = int(np.round(image_height * scale))
+
+        scale_x = resized_width / image_width
+        scale_y = resized_height / image_height
+
+        pad_x = (target_width - resized_width) // 2
+        pad_y = (target_height - resized_height) // 2
+
+        all_metadata.append({
+            "view_index": len(all_metadata),
+            "image_index": image_index,
+            "local_view_index": local_view_index,
+
+            "is_patch": False,
+
+            "scale_x": scale_x,
+            "scale_y": scale_y,
+
+            "pad_x": pad_x,
+            "pad_y": pad_y,
+
+            "image_width": image_width,
+            "image_height": image_height,
+        })
+
+    return all_metadata
