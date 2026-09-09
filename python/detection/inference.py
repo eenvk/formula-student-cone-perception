@@ -319,20 +319,6 @@ def is_near_internal_patch_border(prediction, image_width, image_height, margin=
 
     return (near_left or near_top or near_right or near_bottom)
 
-def distance_from_patch_border(prediction):
-
-    x_min, y_min, x_max, y_max = prediction["local_bbox"]
-
-    valid_width = prediction["patch_valid_width"]
-    valid_height = prediction["patch_valid_height"]
-
-    return min(
-        x_min,
-        y_min,
-        valid_width - x_max,
-        valid_height - y_max
-    )
-
 def is_near_box(box_a, box_b, expansion_factor=0.30):
     """
     Check whether box_b is close to box_a.
@@ -375,50 +361,6 @@ def is_near_box(box_a, box_b, expansion_factor=0.30):
     )
 
 # Post Processing
-def global_nms_confidence(predictions):
-    """
-    Remove duplicate detections produced by overlapping patches.
-
-    NMS is class-aware:
-    two boxes are considered duplicates only if:
-        - they belong to the same class
-        - their IoU is sufficiently high
-
-    Among duplicate boxes, the one with the highest confidence
-    is kept.
-    """
-
-    predictions = sorted(
-        predictions,
-        key=lambda prediction: prediction["score"],
-        reverse=True
-    )
-
-    selected = []
-
-    while predictions:
-
-        best = predictions.pop(0)
-        selected.append(best)
-
-        remaining = []
-
-        for prediction in predictions:
-
-            # Different classes are not considered duplicates.
-            if prediction["class_id"] != best["class_id"]:
-                remaining.append(prediction)
-                continue
-
-            iou =           calculate_iou(best["bbox"], prediction["bbox"])
-            containment =   calculate_containment(best["bbox"], prediction["bbox"])
-
-            if iou < GLOBAL_NMS_IOU_THRESHOLD and containment < GLOBAL_CONTAINMENT_THRESHOLD:
-                remaining.append(prediction)
-
-        predictions = remaining
-
-    return selected
 
 def global_nms_patch_aware(predictions, image_width, image_height):
     """
@@ -538,25 +480,32 @@ def predict_image_with_patches(model, image, patch_size=IMAGE_SIZE, save_debug=F
 def resize_with_letterbox(image, target_size):
     target_h, target_w = target_size
 
-    image_shape = tf.shape(image)
-
-    image_height = tf.cast(image_shape[0], tf.float32)
-    image_width = tf.cast(image_shape[1], tf.float32)
+    image_size = tf.cast(tf.shape(image)[:2], tf.float32)
+    image_height = image_size[0]
+    image_width = image_size[1]
 
     scale = tf.minimum(
         target_w / image_width,
-        target_h / image_height,
+        target_h / image_height
     )
 
-    resized_h = tf.round(image_height * scale)
-    resized_w = tf.round(image_width * scale)
+    resized_size_float = tf.round(image_size * scale)
+    resized_size = tf.cast(resized_size_float, tf.int32)
+
+    resized_h = resized_size[0]
+    resized_w = resized_size[1]
+
+    image = tf.image.resize(image, resized_size)
+
+    scale_y = resized_size_float[0] / image_height
+    scale_x = resized_size_float[1] / image_width
 
     pad_y = (target_h - resized_h) // 2
     pad_x = (target_w - resized_w) // 2
 
-    image = tf.image.resize_with_pad(image, target_h, target_w,)
+    image = tf.image.pad_to_bounding_box(image, pad_y, pad_x, target_h, target_w)
 
-    return image, scale, pad_x, pad_y
+    return image, scale_x, scale_y, pad_x, pad_y
 
 def predict_total_image(model, image):
     image = image.numpy() if tf.is_tensor(image) else image
@@ -565,7 +514,7 @@ def predict_total_image(model, image):
 
     image_height, image_width = image.shape[:2]
 
-    resized_image, scale, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
+    resized_image, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
 
     raw_predictions = model.predict(
         tf.expand_dims(resized_image, axis=0),
@@ -575,7 +524,8 @@ def predict_total_image(model, image):
 
     metadata = {
         "is_patch": False,
-        "scale": float(scale.numpy()),
+        "scale_x": float(scale_x.numpy()),
+        "scale_y": float(scale_y.numpy()),
         "pad_x": float(pad_x.numpy()),
         "pad_y": float(pad_y.numpy()),
     }
@@ -613,65 +563,75 @@ def tensor_predictions_to_list(predictions):
 
 def final_nms(patch_predictions, total_predictions, image_width, image_height):
     """
-    Resolve duplicates between patch-based predictions
-    and full-image predictions.
+    Resolve patch-vs-total duplicates using greedy NMS.
 
-    Patch-vs-patch predictions have already been handled by
+    Patch-vs-patch conflicts have already been handled by
     global_nms_patch_aware().
 
-    Total-vs-total predictions have already been handled by
+    Total-vs-total conflicts have already been handled by
     the model decoder.
 
-    Therefore only patch-vs-total conflicts are considered.
+    Therefore only cross-source conflicts are considered.
     """
-
-    selected_patch = []
-    selected_total = []
-
-    used_total = set()
 
     patch_predictions = ensure_prediction_list(patch_predictions)
     total_predictions = ensure_prediction_list(total_predictions)
 
-    for patch_prediction in patch_predictions:
-        suppress_patch = False
+    candidates = []
 
-        for total_index, total_prediction in enumerate(total_predictions):
-            if total_index in used_total:
+    for prediction in patch_predictions:
+        candidates.append((prediction, "patch"))
+
+    for prediction in total_predictions:
+        candidates.append((prediction, "total"))
+
+    candidates.sort(key=lambda x: x[0]["score"], reverse=True)
+
+    selected = []
+
+    for prediction, source in candidates:
+        suppress = False
+
+        for selected_prediction, selected_source in selected:
+
+            # Patch-vs-patch and total-vs-total
+            # have already been handled before.
+            if source == selected_source:
                 continue
 
-            iou = calculate_iou(patch_prediction["bbox"], total_prediction["bbox"])
-            containment = calculate_containment(patch_prediction["bbox"], total_prediction["bbox"])
+            iou = calculate_iou(
+                prediction["bbox"],
+                selected_prediction["bbox"]
+            )
 
-            # Different classes kept if the the containment is not almost complete
-            if (patch_prediction["class_id"] != total_prediction["class_id"]):
-                if (containment < GLOBAL_CROSS_CONTAINMENT_THRESHOLD):
+            containment = calculate_containment(
+                prediction["bbox"],
+                selected_prediction["bbox"]
+            )
+
+            # Different classes are kept unless
+            # containment is almost complete.
+            if prediction["class_id"] != selected_prediction["class_id"]:
+                if containment < GLOBAL_CROSS_CONTAINMENT_THRESHOLD:
                     continue
 
-            # same class and similar IoU or Containment
             if (iou < GLOBAL_NMS_IOU_THRESHOLD and containment < GLOBAL_CONTAINMENT_THRESHOLD):
                 continue
 
-            # the ones that survives: keep the best
-            if (total_prediction["score"] > patch_prediction["score"]):
-                selected_total.append(total_prediction)
-                used_total.add(total_index)
-                suppress_patch = True
-                break
+            # selected_prediction has equal or higher confidence,
+            # because candidates are sorted by score.
+            suppress = True
+            break
 
-            # Patch prediction has higher confidence.
-            used_total.add(total_index)
+        if not suppress:
+            selected.append((prediction, source))
 
-        if not suppress_patch:
-            selected_patch.append(patch_prediction)
+    final_predictions = []
 
-    # Add total predictions that never conflicted
-    # with a patch prediction.
-    for total_index, total_prediction in enumerate(total_predictions):
-        if total_index not in used_total:
-            selected_total.append(total_prediction)
+    for prediction, source in selected:
+        final_predictions.append(prediction)
 
-    return selected_patch + selected_total
+    return final_predictions
 
 # wrapper
 def predict_boxes(image_bgr, model) -> list[Box]:
@@ -699,7 +659,7 @@ def predict_boxes(image_bgr, model) -> list[Box]:
 def create_combined_views(image):
     patches, metadata = create_patches(image)
 
-    full_image, scale, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
+    full_image, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
     full_image = full_image.numpy() if tf.is_tensor(full_image) else full_image
 
     patches = patches.astype(np.float32, copy=False)
@@ -709,7 +669,8 @@ def create_combined_views(image):
 
     metadata.append({
         "is_patch": False,
-        "scale": float(scale.numpy()),
+        "scale_x": float(scale_x.numpy()),
+        "scale_y": float(scale_y.numpy()),
         "pad_x": float(pad_x.numpy()),
         "pad_y": float(pad_y.numpy()),
     })
@@ -775,17 +736,18 @@ def process_patch_view(predictions, index, metadata):
 def process_full_view(predictions, index, metadata, image_width, image_height):
     result = []
 
-    scale = metadata["scale"]
+    scale_x = metadata["scale_x"]
+    scale_y = metadata["scale_y"]
     pad_x = metadata["pad_x"]
     pad_y = metadata["pad_y"]
 
     for bbox, class_id, score in get_view_detections(predictions, index):
         x_min, y_min, x_max, y_max = bbox
 
-        x_min = (x_min - pad_x) / scale
-        y_min = (y_min - pad_y) / scale
-        x_max = (x_max - pad_x) / scale
-        y_max = (y_max - pad_y) / scale
+        x_min = (x_min - pad_x) / scale_x
+        y_min = (y_min - pad_y) / scale_y
+        x_max = (x_max - pad_x) / scale_x
+        y_max = (y_max - pad_y) / scale_y
 
         x_min, y_min, x_max, y_max = clip_coordinates(
             image_height, image_width, x_min, y_min, x_max, y_max
@@ -922,27 +884,29 @@ def predict_combined_batched(model, images):
         batch_size=PATCH_BATCH_SIZE
     )
 
+    patch_predictions = []
+    total_predictions = []
 
-for view_index, metadata in enumerate(all_metadata):
+    for view_index, metadata in enumerate(all_metadata):
 
-    image_index = metadata["image_index"]
-    image_height, image_width = image_shapes[image_index]
+        image_index = metadata["image_index"]
+        image_height, image_width = image_shapes[image_index]
 
-    if metadata["is_patch"]:
-        patch_predictions[image_index].extend(
-            process_patch_view(
-                raw_predictions,
-                view_index,
-                metadata
+        if metadata["is_patch"]:
+            patch_predictions[image_index].extend(
+                process_patch_view(
+                    raw_predictions,
+                    view_index,
+                    metadata
+                )
             )
-        )
-    else:
-        total_predictions[image_index].extend(
-            process_full_view(
-                raw_predictions,
-                view_index,
-                metadata,
-                image_width,
-                image_height
+        else:
+            total_predictions[image_index].extend(
+                process_full_view(
+                    raw_predictions,
+                    view_index,
+                    metadata,
+                    image_width,
+                    image_height
+                )
             )
-        )
