@@ -18,7 +18,7 @@ from detection.detection_config import (
 )
 
 from detection.inference import (
-    predict_image_with_patches
+    predict_combined
 )
 
 
@@ -153,7 +153,7 @@ class InferenceValidation(keras.callbacks.Callback):
             image = sample["images"]
             y_true = sample["bounding_boxes"]
 
-            y_pred = predict_image_with_patches(self.model, image)
+            y_pred = predict_combined(self.model, image)
 
             y_true = {
                 "boxes": tf.expand_dims(y_true["boxes"], axis=0),
@@ -248,3 +248,4 @@ def visualize_detections(model, dataset, output_path):
         f"\nPredictions saved to: "
         f"{output_path}"
     )
+
