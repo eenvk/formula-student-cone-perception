@@ -181,6 +181,15 @@ def prediction_to_box(bbox_xyxy: Sequence[float], detection_class_id: int, score
     x_min, y_min, x_max, y_max = (int(round(float(value))) for value in bbox_xyxy)
     return Box(x_min, y_min, x_max, y_max, detection_id_to_segmentation_id(int(detection_class_id)), float(score))
 
+def ground_truth_to_box(bbox_xyxy, detection_class_id):
+    x_min, y_min, x_max, y_max = (int(round(float(value))) for value in bbox_xyxy)
+
+    return Box(x_min, y_min, x_max, y_max,
+        detection_id_to_segmentation_id(
+            int(detection_class_id)
+        ),
+        None,
+    )
 
 def load_annotation(annotation_path: str | Path) -> dict[str, Any]:
     """Load and validate the top-level structure of a JSON annotation."""

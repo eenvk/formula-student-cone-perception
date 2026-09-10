@@ -18,7 +18,16 @@ from detection.detection_config import (
 )
 
 from detection.inference import (
-    predict_combined
+    predict_inference_dataset
+)
+
+from evaluation.evaluation_utils import (
+    DetectionEvaluator,
+    ClassificationEvaluator,
+)
+
+from dataset.dataset_utils import (
+    ground_truth_to_box
 )
 
 
@@ -111,7 +120,7 @@ class InferenceValidation(keras.callbacks.Callback):
     Keras callback for inference the validation set.
     """
 
-    def __init__(self, data, save_path, eval_every=10):
+    def __init__(self, data, save_path, metadata, y_true, eval_every=10):
         """
         Initializes the callback.
         
@@ -125,15 +134,25 @@ class InferenceValidation(keras.callbacks.Callback):
         self.data = data
         self.save_path = Path(save_path)
         self.eval_every = eval_every
-
-        self.metrics = (
-            keras_cv.metrics.BoxCOCOMetrics(
-                bounding_box_format="xyxy",
-                evaluate_freq=1e9, #disenabled the automatic evalutation (with a large number)
-            )
-        )
-
+        self.inference_metadata = metadata
+        self.y_true = []
         self.best_map = -1.0
+
+        for boxes, classes in zip(
+            y_true["boxes"],
+            y_true["classes"]
+        ):
+            image_gt = []
+
+            for box, class_id in zip(boxes, classes):
+                image_gt.append(
+                    ground_truth_to_box(
+                        box,
+                        class_id,
+                    )
+                )
+
+            self.y_true.append(image_gt)
 
     def on_epoch_end(self, epoch, logs=None):
         """
@@ -146,45 +165,53 @@ class InferenceValidation(keras.callbacks.Callback):
         if ((epoch + 1) % self.eval_every != 0):
             return
 
-        self.metrics.reset_state()
-
         print("Inference on validation set...")
-        for sample in self.data:
-            image = sample["images"]
-            y_true = sample["bounding_boxes"]
+        y_pred = predict_inference_dataset(self.model, self.data, self.inference_metadata)
 
-            y_pred = predict_combined(self.model, image)
+        if len(self.y_true) != len(y_pred):
+            raise ValueError(
+                f"Ground truth/prediction mismatch: "
+                f"{len(self.y_true)} GT images, "
+                f"{len(y_pred)} predicted images."
+            )
+        # y_pred = bounding_box.to_ragged(y_pred)
 
-            y_true = {
-                "boxes": tf.expand_dims(y_true["boxes"], axis=0),
-                "classes": tf.expand_dims(y_true["classes"], axis=0),
-            }
-            y_pred = {"boxes": tf.expand_dims(y_pred["boxes"], axis=0),
-                "classes": tf.expand_dims(y_pred["classes"], axis=0),
-                "confidence": tf.expand_dims(y_pred["confidence"], axis=0)
-            }
-            
-            y_true = bounding_box.to_ragged(y_true)
-            y_pred = bounding_box.to_ragged(y_pred)
+        detection_evaluator = DetectionEvaluator()
+        classification_evaluator = ClassificationEvaluator(
+            iou_threshold=0.5
+        )
 
-            self.metrics.update_state(y_true, y_pred)
+        for gt_boxes, pred_boxes in zip(
+            self.y_true,
+            y_pred,
+        ):
+            detection_evaluator.update(
+                gt_boxes,
+                pred_boxes,
+            )
 
-        raw_metrics = self.metrics.result(force=True)
+            classification_evaluator.update(
+                gt_boxes,
+                pred_boxes,
+            )
 
-        metric_values = {
-            name: float(value.numpy())
-            if tf.is_tensor(value)
-            else float(value)
+        detection_report = detection_evaluator.report()
+        classification_report = classification_evaluator.report()
 
-            for name, value in raw_metrics.items()
-        }
+        current_map = detection_report[
+            "mAP@0.5:0.95"
+        ]
+
+        print(
+            f"\nInference mAP@0.5:0.95: "
+            f"{current_map:.4f}"
+        )
 
         if logs is not None:
-            logs.update(metric_values)
-
-        current_map = metric_values["MaP"]
-
-        print(f"\Inference mAP: " f"{current_map:.5f}")
+            logs["mAP@0.5:0.95"] = current_map
+            logs["macro_f1"] = classification_report[
+                "macro_f1"
+            ]
 
         if current_map > self.best_map:
             self.best_map = current_map
