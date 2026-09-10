@@ -1,4 +1,3 @@
-import argparse
 import tensorflow as tf
 
 from dataset.dataset_utils import (
@@ -8,11 +7,13 @@ from dataset.dataset_utils import (
     prediction_to_box,
 )
 
+from detection.data_pipeline import (
+    build_inference_dataset,
+    build_inference_metadata,
+)
+
 from detection.inference import (
-    predict_boxes,
-    predict_image_with_patches,
-    predict_total_image,
-    final_nms,
+    postprocess_inference_dataset,
 )
 
 from detection.detection_config import (
@@ -28,20 +29,15 @@ from evaluation.evaluation_utils import (
 )
 
 
-def evaluate_model(model, pairs, mode):
+def prepare_test_data(pairs):
+    image_paths = []
+    image_shapes = []
+    y_true = []
 
-    detection_evaluator = DetectionEvaluator()
-    classification_evaluator = ClassificationEvaluator(iou_threshold=0.5)
+    for image_path, annotation_path in pairs:
+        image = load_cv_image(image_path)
 
-    total_gt = 0
-    total_predictions = 0
-
-    for index, (image_path, annotation_path) in enumerate(pairs):
-
-        print(f"[{index + 1}/{len(pairs)}] {image_path.name}")
-
-        image_bgr = load_cv_image(image_path)
-        image_height, image_width = image_bgr.shape[:2]
+        image_height, image_width = image.shape[:2]
 
         gt_boxes = annotation_to_instances(
             annotation_path,
@@ -50,39 +46,117 @@ def evaluate_model(model, pairs, mode):
             bitmap_only=True
         )
 
-        if mode == "combined":
-            pred_boxes = predict_boxes(image_bgr, model)
+        image_paths.append(str(image_path))
+        image_shapes.append([
+            image_height,
+            image_width
+        ])
 
-        elif mode == "separate":
-            image_rgb = image_bgr[:, :, ::-1]
+        y_true.append(gt_boxes)
 
-            patch_predictions = predict_image_with_patches(model, image_rgb)
-            total_predictions_image = predict_total_image(model, image_rgb)
+    image_paths = tf.constant(
+        image_paths,
+        dtype=tf.string
+    )
 
-            predictions = final_nms(
-                patch_predictions,
-                total_predictions_image,
-                image_width,
-                image_height
+    image_shapes = tf.constant(
+        image_shapes,
+        dtype=tf.int32
+    )
+
+    return image_paths, image_shapes, y_true
+
+
+def build_test_dataset():
+    pairs = get_segmentation_test_pairs()
+
+    print()
+    print("Test image/annotation pairs found:", len(pairs))
+
+    image_paths, image_shapes, y_true = prepare_test_data(
+        pairs
+    )
+
+    inference_ds = build_inference_dataset(
+        image_paths
+    )
+
+    inference_metadata = build_inference_metadata(
+        image_shapes
+    )
+
+    print("Inference metadata:", len(inference_metadata))
+
+    return (
+        pairs,
+        inference_ds,
+        inference_metadata,
+        y_true
+    )
+
+
+def run_inference(
+    model,
+    inference_ds,
+    inference_metadata
+):
+    raw_predictions = model.predict(
+        inference_ds
+    )
+
+    predictions = postprocess_inference_dataset(
+        raw_predictions,
+        inference_metadata,
+    )
+
+    return predictions
+
+
+def evaluate_model(
+    predictions,
+    y_true,
+    pairs
+):
+    detection_evaluator = DetectionEvaluator()
+
+    classification_evaluator = ClassificationEvaluator(
+        iou_threshold=0.5
+    )
+
+    total_gt = 0
+    total_predictions = 0
+
+    num_images = len(predictions)
+
+    if num_images != len(y_true):
+        raise ValueError(
+            f"Predictions/GT mismatch: "
+            f"{num_images} prediction groups for "
+            f"{len(y_true)} images."
+        )
+
+    for image_index in range(num_images):
+        image_path, _ = pairs[image_index]
+
+        gt_boxes = y_true[image_index]
+        image_predictions = predictions[image_index]
+
+        pred_boxes = [
+            prediction_to_box(
+                prediction["bbox"],
+                prediction["class_id"],
+                prediction["score"],
             )
-
-            pred_boxes = [
-                prediction_to_box(
-                    prediction["bbox"],
-                    prediction["class_id"],
-                    prediction["score"],
-                )
-                for prediction in predictions
-            ]
-
-        else:
-            raise ValueError(f"Unknown inference mode: {mode}")
+            for prediction in image_predictions
+        ]
 
         total_gt += len(gt_boxes)
         total_predictions += len(pred_boxes)
 
         print(
-            f"  GT: {len(gt_boxes)} | "
+            f"[{image_index + 1}/{num_images}] "
+            f"{image_path.name} | "
+            f"GT: {len(gt_boxes)} | "
             f"Predictions: {len(pred_boxes)}"
         )
 
@@ -99,11 +173,11 @@ def evaluate_model(model, pairs, mode):
     )
 
 
-def print_report(detection_report, classification_report, mode):
+def print_report(detection_report, classification_report):
 
     print()
     print("=" * 40)
-    print(f"INFERENCE MODE: {mode.upper()}")
+    print("TEST EVALUATION")
     print("=" * 40)
 
     print()
@@ -141,56 +215,37 @@ def print_report(detection_report, classification_report, mode):
 
 
 def main():
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--mode",
-        choices=["combined", "separate", "both"],
-        default="combined",
-        help=(
-            "combined: patch e full image nella stessa model.predict(); "
-            "separate: due inference separate; "
-            "both: esegue entrambe"
-        )
-    )
-
-    args = parser.parse_args()
-
     tf.keras.utils.set_random_seed(SEED)
 
-    pairs = get_segmentation_test_pairs()
-
-    print()
-    print("Test image/annotation pairs found:", len(pairs))
+    (
+        pairs,
+        inference_ds,
+        inference_metadata,
+        y_true
+    ) = build_test_dataset()
 
     model = create_model()
-    model.load_weights(str(CHECKPOINT_PATH))
 
-    modes = (
-        ["separate", "combined"]
-        if args.mode == "both"
-        else [args.mode]
+    model.load_weights(
+        str(CHECKPOINT_PATH)
     )
 
-    for mode in modes:
+    predictions = run_inference(
+        model,
+        inference_ds,
+        inference_metadata
+    )
 
-        print()
-        print("=" * 40)
-        print(f"STARTING {mode.upper()} INFERENCE")
-        print("=" * 40)
+    detection_report, classification_report = evaluate_model(
+        predictions,
+        y_true,
+        pairs
+    )
 
-        detection_report, classification_report = evaluate_model(
-            model,
-            pairs,
-            mode
-        )
-
-        print_report(
-            detection_report,
-            classification_report,
-            mode
-        )
+    print_report(
+        detection_report,
+        classification_report
+    )
 
 
 if __name__ == "__main__":

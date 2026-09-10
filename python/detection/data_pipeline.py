@@ -4,6 +4,7 @@ import tensorflow as tf
 import keras_cv
 import cv2
 import numpy as np
+import random
 
 from detection.inference import (
     resize_with_letterbox
@@ -32,7 +33,9 @@ from detection.detection_config import (
     SEED,
     SPLIT_RATIO,
     PATCH_BATCH_SIZE,
-    PATCH_STRIDE
+    PATCH_STRIDE,
+    MIN_RETAINED_AREA,
+    NUM_NEGATIVE_CROP_ATTEMPTS
 )
 
 def prepare_dataset_data(pairs):
@@ -63,18 +66,11 @@ def prepare_dataset_data(pairs):
 
         for box in instances:
 
-            boxes.append([
-                float(box.x_min),
-                float(box.y_min),
-                float(box.x_max),
-                float(box.y_max)
-            ])
+            boxes.append([float(box.x_min), float(box.y_min), float(box.x_max), float(box.y_max)])
 
             # dataset_utils uses IDs 1-4.
             # Detection uses IDs 0-3.
-            detection_class_id = segmentation_id_to_detection_id(
-                box.class_id
-            )
+            detection_class_id = segmentation_id_to_detection_id(box.class_id)
 
             classes.append(detection_class_id)
 
@@ -261,6 +257,214 @@ def build_train_val_datasets():
     return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, val_y_true
 
 
+def positive_crop(image_path, classes, bbox):
+    image = load_image(image_path)
+
+    image_height = tf.shape(image)[0]
+    image_width = tf.shape(image)[1]
+
+    crop_height = IMAGE_SIZE[0]
+    crop_width = IMAGE_SIZE[1]
+
+    can_crop = tf.logical_and(
+        image_height >= crop_height,
+        image_width >= crop_width
+    )
+
+
+    box_widths = bbox[:, 2] - bbox[:, 0]
+    box_heights = bbox[:, 3] - bbox[:, 1]
+
+    can_fit = tf.logical_and(box_widths <= crop_width, box_heights <= crop_height)
+
+    valid_indices = tf.where(can_fit)[:, 0]
+    n_valid = tf.shape(valid_indices)[0]
+
+    def fallback():
+        return load_dataset(image_path, classes, bbox)
+
+
+    def make_positive_crop():
+        random_index = tf.random.uniform([], 0, n_valid, dtype=tf.int32)
+        selected_cone = valid_indices[random_index]
+
+        coord_cone = bbox[selected_cone]
+        x1 = coord_cone[0]
+        y1 = coord_cone[1]
+        x2 = coord_cone[2]
+        y2 = coord_cone[3]
+
+        # Valid interval for the top-left corner of the crop.
+        # Any point chosen in these intervals guarantees that
+        # the selected cone is completely inside the crop.
+        min_crop_x = tf.maximum(0, tf.cast(tf.math.ceil(x2 - crop_width), tf.int32))
+        max_crop_x = tf.minimum(tf.cast(tf.math.floor(x1), tf.int32), image_width - crop_width)
+
+        min_crop_y = tf.maximum(0, tf.cast(tf.math.ceil(y2 - crop_height), tf.int32))
+        max_crop_y = tf.minimum(tf.cast(tf.math.floor(y1), tf.int32), image_height - crop_height)
+
+        crop_x = tf.random.uniform([], min_crop_x, max_crop_x + 1, dtype=tf.int32)
+        crop_y = tf.random.uniform([], min_crop_y, max_crop_y + 1, dtype=tf.int32)
+
+        image_crop = tf.image.crop_to_bounding_box(image, crop_y, crop_x, crop_height, crop_width)
+
+        offset = tf.cast(
+            [crop_x, crop_y, crop_x, crop_y],
+            tf.float32
+        )
+
+        crop_bbox = bbox - offset
+
+        bx1 = tf.clip_by_value(crop_bbox[:, 0], 0.0, crop_width)
+        by1 = tf.clip_by_value(crop_bbox[:, 1], 0.0, crop_height)
+        bx2 = tf.clip_by_value(crop_bbox[:, 2], 0.0, crop_width)
+        by2 = tf.clip_by_value(crop_bbox[:, 3], 0.0, crop_height)
+
+        original_area = (bbox[:, 2] - bbox[:, 0]) * (bbox[:, 3] - bbox[:, 1])
+        cropped_area = (
+            tf.maximum(0.0, bx2 - bx1) *
+            tf.maximum(0.0, by2 - by1)
+        )
+
+        retained_area = cropped_area / tf.maximum(original_area, 1e-6)
+        valid = retained_area >= MIN_RETAINED_AREA
+
+        clipped_bbox = tf.stack(
+            [bx1, by1, bx2, by2],
+            axis=-1
+        )
+        clipped_bbox = tf.boolean_mask(clipped_bbox, valid)
+        cropped_classes = tf.boolean_mask(classes, valid)
+
+
+        return {
+            "images": image_crop,
+            "bounding_boxes": {
+                "boxes": clipped_bbox,
+                "classes": cropped_classes
+            }
+        }
+
+    return tf.cond(
+        tf.logical_and(can_crop, n_valid > 0),
+        make_positive_crop,
+        fallback
+        )
+
+def negative_crop(image_path, classes, bbox):
+    image = load_image(image_path)
+
+    image_height = tf.shape(image)[0]
+    image_width = tf.shape(image)[1]
+
+    crop_height = IMAGE_SIZE[0]
+    crop_width = IMAGE_SIZE[1]
+
+    can_crop = tf.logical_and(
+        image_height >= crop_height,
+        image_width >= crop_width
+    )
+
+    def make_negative_crop():
+        # Generate several random candidate crops.
+        crop_xs = tf.random.uniform(
+            [NUM_NEGATIVE_CROP_ATTEMPTS],
+            minval=0,
+            maxval=image_width - crop_width + 1,
+            dtype=tf.int32
+        )
+
+        crop_ys = tf.random.uniform(
+            [NUM_NEGATIVE_CROP_ATTEMPTS],
+            minval=0,
+            maxval=image_height - crop_height + 1,
+            dtype=tf.int32
+        )
+
+        crop_xs_float = tf.cast(crop_xs, bbox.dtype)
+        crop_ys_float = tf.cast(crop_ys, bbox.dtype)
+
+        crop_x2s = crop_xs_float + crop_width
+        crop_y2s = crop_ys_float + crop_height
+
+        # Intersection between every candidate crop and every bbox.
+        ix1 = tf.maximum(crop_xs_float[:, None], bbox[None, :, 0])
+        iy1 = tf.maximum(crop_ys_float[:, None], bbox[None, :, 1])
+        ix2 = tf.minimum(crop_x2s[:, None], bbox[None, :, 2])
+        iy2 = tf.minimum(crop_y2s[:, None], bbox[None, :, 3])
+
+        intersection_width = tf.maximum(0.0, ix2 - ix1)
+        intersection_height = tf.maximum(0.0, iy2 - iy1)
+
+        intersection_area = intersection_width * intersection_height
+
+        # A candidate is negative only if it intersects no bbox.
+        valid_candidates = tf.reduce_all(
+            intersection_area == 0.0,
+            axis=1
+        )
+
+        valid_indices = tf.where(valid_candidates)[:, 0]
+        n_valid = tf.shape(valid_indices)[0]
+
+        def use_negative_crop():
+            random_index = tf.random.uniform(
+                [],
+                minval=0,
+                maxval=n_valid,
+                dtype=tf.int32
+            )
+
+            selected = valid_indices[random_index]
+
+            crop_x = crop_xs[selected]
+            crop_y = crop_ys[selected]
+
+            image_crop = tf.image.crop_to_bounding_box(
+                image,
+                crop_y,
+                crop_x,
+                crop_height,
+                crop_width
+            )
+
+            return {
+                "images": image_crop,
+                "bounding_boxes": {
+                    "boxes": tf.zeros([0, 4], dtype=bbox.dtype),
+                    "classes": tf.zeros([0], dtype=classes.dtype)
+                }
+            }
+
+        def fallback():
+            return load_dataset(image_path, classes, bbox)
+
+        return tf.cond(
+            n_valid > 0,
+            use_negative_crop,
+            fallback
+        )
+
+    def fallback():
+        return load_dataset(image_path, classes, bbox)
+
+    return tf.cond(
+        can_crop,
+        make_negative_crop,
+        fallback
+    )
+
+@tf.function
+def load_train_dataset(image_path, classes, bbox):
+    n = tf.random.uniform([])
+    if n < 0.5:
+        return load_dataset(image_path, classes, bbox)
+    elif n < 0.90:
+        return positive_crop(image_path, classes, bbox)
+    else:
+        return negative_crop(image_path, classes, bbox)
+
+
 def build_train_dataset(train_data, num_train):
     # Shuffle the training samples at each epoch.
     train_data = train_data.shuffle(
@@ -269,15 +473,18 @@ def build_train_dataset(train_data, num_train):
         reshuffle_each_iteration=True
     )
 
-    # Jittered Resize is used to resize with a casual variability
-    train_resizing = keras_cv.layers.JitteredResize(
-        target_size=IMAGE_SIZE,
-        scale_factor=(0.75, 1.30), #range of rescaling
-        bounding_box_format="xyxy",
+    train_ds = train_data.map(
+        load_train_dataset,
+        num_parallel_calls=NUM_PARALLEL_CALLS,
+        deterministic=False,
     )
 
-    train_ds = train_data.map(
-        load_dataset,
+
+    # data augmentation DOPO batching
+    # Questo è più efficiente: resizziamo interi batch, non singole immagini
+    # La variabilità JitteredResize (0.75-1.30) aggiunge diversità ai dati di training
+    train_ds = train_ds.map(
+        resize_sample,
         num_parallel_calls=NUM_PARALLEL_CALLS,
         deterministic=False,
     )
@@ -286,16 +493,6 @@ def build_train_dataset(train_data, num_train):
     # I batch permettono di processare più immagini insieme sulla GPU (più efficiente)
     # drop_remainder=True: scarta gli ultimi elementi se non fanno un batch completo
     train_ds = train_ds.ragged_batch(BATCH_SIZE,drop_remainder=True)
-
-
-    # Applica resizing e data augmentation DOPO batching
-    # Questo è più efficiente: resizziamo interi batch, non singole immagini
-    # La variabilità JitteredResize (0.75-1.30) aggiunge diversità ai dati di training
-    train_ds = train_ds.map(
-        train_resizing,
-        num_parallel_calls=NUM_PARALLEL_CALLS,
-        deterministic=False,
-    )
 
     # FORMAT CONVERSION
     # Converte il formato da dict a tuple per compatibilità con il modello
@@ -319,7 +516,7 @@ def build_train_dataset(train_data, num_train):
 
     return train_ds
 
-def resize_validation_sample(inputs):
+def resize_sample(inputs):
     image = inputs["images"]
     boxes = inputs["bounding_boxes"]["boxes"]
     classes = inputs["bounding_boxes"]["classes"]
@@ -350,7 +547,7 @@ def build_val_loss_dataset(val_data):
         num_parallel_calls=1,
     )
 
-    val_ds = val_ds.map(resize_validation_sample, num_parallel_calls=1)
+    val_ds = val_ds.map(resize_sample, num_parallel_calls=1)
 
     val_ds = val_ds.ragged_batch(BATCH_SIZE, drop_remainder=False)
     val_ds = val_ds.map(dict_to_tuple, num_parallel_calls=1)
