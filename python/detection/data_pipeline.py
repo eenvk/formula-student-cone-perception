@@ -215,8 +215,8 @@ def build_train_val_datasets():
 
     # 3.
     print("Reading annotations ...")
-    train_image_paths, train_classes, train_bboxes, _ = prepare_dataset_data(train_pairs)
-    val_image_paths, val_classes, val_bboxes, _ = prepare_dataset_data(val_pairs)
+    train_image_paths, train_classes, train_bboxes, _  = prepare_dataset_data(train_pairs)
+    val_image_paths, val_classes, val_bboxes, val_image_shapes = prepare_dataset_data(val_pairs)
 
     print("\nDataset loaded.")
     print("Images:", train_image_paths.shape)
@@ -251,8 +251,8 @@ def build_train_val_datasets():
     val_loss_ds = build_val_loss_dataset(val_data)
 
     val_inference_ds = build_inference_dataset(val_image_paths)
-    val_inference_metadata = build_inference_metadata(val_image_paths)
-
+    val_inference_metadata = build_inference_metadata(val_image_shapes)
+    print("Inference metadata:", len(val_inference_metadata))
     val_y_true = {
         "boxes": val_bboxes,
         "classes": val_classes,

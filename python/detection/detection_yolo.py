@@ -1,7 +1,4 @@
-# ============================================================
-# ENVIRONMENT VARIABLES
-# IMPORTANT: they must be set BEFORE importing TensorFlow
-# ============================================================
+#tino
 
 import os
 
