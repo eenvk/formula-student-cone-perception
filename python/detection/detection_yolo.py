@@ -4,11 +4,6 @@ import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-
-# ============================================================
-# IMPORTS
-# ============================================================
-
 import tensorflow as tf
 from tensorflow import keras
 import numpy as np
@@ -22,8 +17,6 @@ from detection.detection_config import (
     EVAL_EVERY,
     SEED,
     VALIDATION_FREQ,
-    RESUME_TRAINING,
-    RESUME_FROM_EPOCH,
     IMAGE_SIZE
 )
 
@@ -33,7 +26,6 @@ from detection.model_utils import (
     InferenceValidation,
     configure_gpu,
     create_model,
-    visualize_detections,
 )
 
 def visualize_train_samples(train_ds, num_samples=30):

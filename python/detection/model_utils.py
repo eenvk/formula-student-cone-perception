@@ -127,7 +127,7 @@ class InferenceValidation(keras.callbacks.Callback):
         Args:
             data: Validation dataset to evaluate on (batched)
             save_path: Path where best model weights will be saved
-            eval_every: Evaluate metrics every N epochs (default: 1)
+            eval_every: Evaluate metrics every N epochs (default: 10)
         """
         super().__init__()
 
@@ -145,12 +145,7 @@ class InferenceValidation(keras.callbacks.Callback):
             image_gt = []
 
             for box, class_id in zip(boxes, classes):
-                image_gt.append(
-                    ground_truth_to_box(
-                        box,
-                        class_id,
-                    )
-                )
+                image_gt.append(ground_truth_to_box(box, class_id,))
 
             self.y_true.append(image_gt)
 
@@ -165,7 +160,7 @@ class InferenceValidation(keras.callbacks.Callback):
         if ((epoch + 1) % self.eval_every != 0):
             return
 
-        print("Inference on validation set...")
+        print("\nInference on validation set...")
         y_pred = predict_inference_dataset(self.model, self.data, self.inference_metadata)
 
         if len(self.y_true) != len(y_pred):
@@ -174,105 +169,29 @@ class InferenceValidation(keras.callbacks.Callback):
                 f"{len(self.y_true)} GT images, "
                 f"{len(y_pred)} predicted images."
             )
-        # y_pred = bounding_box.to_ragged(y_pred)
 
         detection_evaluator = DetectionEvaluator()
-        classification_evaluator = ClassificationEvaluator(
-            iou_threshold=0.5
-        )
+        classification_evaluator = ClassificationEvaluator(iou_threshold=0.5)
 
-        for gt_boxes, pred_boxes in zip(
-            self.y_true,
-            y_pred,
-        ):
-            detection_evaluator.update(
-                gt_boxes,
-                pred_boxes,
-            )
-
-            classification_evaluator.update(
-                gt_boxes,
-                pred_boxes,
-            )
+        for gt_boxes, pred_boxes in zip(self.y_true, y_pred,):
+            detection_evaluator.update(gt_boxes, pred_boxes,)
+            classification_evaluator.update(gt_boxes, pred_boxes,)
 
         detection_report = detection_evaluator.report()
         classification_report = classification_evaluator.report()
 
-        current_map = detection_report[
-            "mAP@0.5:0.95"
-        ]
+        current_f1 = classification_report["macro_f1"]
+        current_map = detection_report["mAP@0.5:0.95"]
 
-        print(
-            f"\nInference mAP@0.5:0.95: "
-            f"{current_map:.4f}"
-        )
+        print(f"\nInference mAP@0.5:0.95: "f"{current_map:.4f}")
+        print(f"\nInference f1: "f"{current_f1:.4f}")
 
         if logs is not None:
             logs["mAP@0.5:0.95"] = current_map
-            logs["macro_f1"] = classification_report[
-                "macro_f1"
-            ]
+            logs["macro_f1"] = classification_report["macro_f1"]
 
         if current_map > self.best_map:
             self.best_map = current_map
+            self.model.save_weights(str(self.save_path))
 
-            self.model.save_weights(
-                str(self.save_path)
-            )
-
-            print(
-                "New best model saved to: "
-                f"{self.save_path}"
-            )
-
-
-def visualize_detections(model, dataset, output_path):
-    """
-    Generates visualization of model predictions on a batch of images.
-    
-    Takes one batch from the dataset, generates predictions, and creates
-    a side-by-side gallery showing ground truth and predicted bounding boxes.
-    Saves the visualization to disk.
-    
-    Args:
-        model: Trained YOLOv8 detector model
-        dataset: Dataset to visualize (takes first batch)
-        output_path: Path where visualization image will be saved (PNG)
-    """
-    images, y_true = next(
-        iter(dataset.take(1))
-    )
-
-    y_pred = model.predict(images, verbose=0)
-
-    y_pred = bounding_box.to_ragged(
-        y_pred
-    )
-
-    visualization.plot_bounding_box_gallery(
-        images,
-        value_range=(0, 255),
-        bounding_box_format="xyxy",
-        y_true=y_true,
-        y_pred=y_pred,
-        scale=4,
-        rows=2,
-        cols=2,
-        show=False,
-        font_scale=0.7,
-        class_mapping=CLASS_MAPPING,
-    )
-
-    plt.savefig(
-        output_path,
-        dpi=150,
-        bbox_inches="tight",
-    )
-
-    plt.close()
-
-    print(
-        f"\nPredictions saved to: "
-        f"{output_path}"
-    )
-
+            print("New best model saved to: " f"{self.save_path}")

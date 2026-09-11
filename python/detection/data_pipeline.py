@@ -100,8 +100,11 @@ def build_train_val_datasets():
     val_loss_ds = build_val_loss_dataset(val_data)
 
     # 6.
-    val_inference_ds = build_inference_dataset(val_image_paths)
-    val_inference_metadata = build_inference_metadata(val_image_shapes)
+    selected_inference_paths = select_inference_subset(val_data, 0.2)
+    print("Number of images used during training to see inference the model", len(selected_inference_paths))
+
+    val_inference_ds = build_inference_dataset(selected_inference_paths)
+    val_inference_metadata = build_inference_metadata(selected_inference_paths)
 
     print("Inference metadata:", len(val_inference_metadata))
 
@@ -151,22 +154,9 @@ def prepare_dataset_data(pairs):
         all_classes.append(classes)
         image_shapes.append([image_height, image_width])
 
-    image_paths = tf.constant(
-        image_paths,
-        dtype=tf.string
-    )
-
-    bbox = tf.ragged.constant(
-        all_boxes,
-        dtype=tf.float32,
-        ragged_rank=1
-    )
-
-    classes = tf.ragged.constant(
-        all_classes,
-        dtype=tf.float32,
-        ragged_rank=1
-    )
+    image_paths = tf.constant(image_paths, dtype=tf.string)
+    bbox = tf.ragged.constant(all_boxes, dtype=tf.float32, ragged_rank=1)
+    classes = tf.ragged.constant(all_classes, dtype=tf.float32, ragged_rank=1)
 
     image_shapes = tf.constant(image_shapes, dtype= tf.int32)
 
@@ -683,3 +673,21 @@ def build_inference_metadata(image_shapes):
         })
 
     return all_metadata
+
+def select_inference_subset(image_paths, ratio=0.2):
+
+    num_images = tf.shape(image_paths)[0]
+
+    num_selected = tf.cast(
+        tf.math.ceil(
+            tf.cast(num_images, tf.float32) * ratio
+        ),
+        tf.int32
+    )
+
+    shuffled_paths = tf.random.experimental.stateless_shuffle(
+        image_paths,
+        seed=[SEED, 0]
+    )
+
+    return shuffled_paths[:num_selected]

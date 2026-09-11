@@ -13,8 +13,9 @@ import numpy as np
 import tensorflow as tf
 
 from dataset.dataset_utils import PROJECT_ROOT, annotation_to_semantic_mask, create_overlay, get_segmentation_test_pairs, load_image
+from detection.data_pipeline import build_inference_dataset, build_inference_metadata, prepare_dataset_data
 from detection.detection_config import CHECKPOINT_PATH, SEED
-from detection.inference import predict_boxes
+from detection.inference import predict_inference_dataset
 from detection.model_utils import create_model
 from evaluation.evaluation_utils import SegmentationEvaluator
 from segmentation.predict_segmentation import predict_segmentation
@@ -45,13 +46,20 @@ def main():
 
     print(f"Test images: {len(pairs)}")
 
+    image_paths, _, _, image_shapes = prepare_dataset_data(pairs)
+
+    inference_ds = build_inference_dataset(image_paths)
+    inference_metadata = build_inference_metadata(image_shapes)
+
+    all_predicted_boxes = predict_inference_dataset(detector_model, inference_ds, inference_metadata)
+
     for image_index, (image_path, annotation_path) in enumerate(pairs):
         image_bgr = load_image(image_path)
         image_height, image_width = image_bgr.shape[:2]
 
         gt_mask = annotation_to_semantic_mask(annotation_path, image_height, image_width)
 
-        predicted_boxes = predict_boxes(image_bgr, detector_model)
+        predicted_boxes = all_predicted_boxes[image_index]
         predicted_mask = predict_segmentation(image_bgr, predicted_boxes, segmentation_model)
 
         evaluator.update(gt_mask, predicted_mask)

@@ -31,7 +31,7 @@ GLOBAL_CLIPNORM = 10.0
 # Run validation every N epochs during model.fit().
 VALIDATION_FREQ = 5
 # Run the full inference / COCO evaluation every N epochs.
-EVAL_EVERY = 10
+EVAL_EVERY = 5
 
 # ============================================================
 # Classes
@@ -45,6 +45,8 @@ PROJECT_DIR = DETECTION_DIR.parent.parent
 
 CHECKPOINT_PATH = PROJECT_DIR / "models" / "best_yolov8.weights.h5"
 DETECTIONS_PATH = DETECTION_DIR / "detections.png"
+
+RAW_PREDICTIONS_DIR = PROJECT_DIR / "evaluation" / "raw_detection_prediction"
 
 # ============================================================
 # Inference batching
@@ -79,3 +81,6 @@ GLOBAL_CROSS_CONTAINMENT_THRESHOLD = 0.95
 MIN_RETAINED_AREA = 0.4
 # Maximum number of attempts used to generate a valid negative crop.
 NUM_NEGATIVE_CROP_ATTEMPTS = 50
+
+#Evaluation
+RUN_MODEL_INFERENCE = True

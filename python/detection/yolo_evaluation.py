@@ -1,10 +1,10 @@
 import tensorflow as tf
+import numpy as np
 
 from dataset.dataset_utils import (
     get_segmentation_test_pairs,
     annotation_to_instances,
     load_image as load_cv_image,
-    prediction_to_box,
 )
 
 from detection.data_pipeline import (
@@ -19,6 +19,9 @@ from detection.inference import (
 from detection.detection_config import (
     CHECKPOINT_PATH,
     SEED,
+    RAW_PREDICTIONS_DIR,
+    PATCH_STRIDE,
+    RUN_MODEL_INFERENCE
 )
 
 from detection.model_utils import create_model
@@ -95,12 +98,28 @@ def build_test_dataset():
     )
 
 
-def run_inference(model, inference_ds, inference_metadata):
+def run_inference(model, inference_ds):
     raw_predictions = model.predict(inference_ds)
-    predictions = postprocess_inference_dataset(raw_predictions, inference_metadata,)
+    RAW_PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
-    return predictions
+    output_path = (
+        RAW_PREDICTIONS_DIR /
+        f"raw_predictions_stride_{PATCH_STRIDE}.npz"
+    )
 
+    np.savez(output_path, **raw_predictions)
+
+    return raw_predictions
+
+def load_raw_predictions():
+    input_path = (
+        RAW_PREDICTIONS_DIR /
+        f"raw_predictions_stride_{PATCH_STRIDE}.npz"
+    )
+
+    data = np.load(input_path)
+
+    return {key: data[key] for key in data.files}
 
 def evaluate_model(predictions, y_true, pairs):
     detection_evaluator = DetectionEvaluator()
@@ -198,14 +217,22 @@ def print_report(detection_report, classification_report):
 
 def main():
     tf.keras.utils.set_random_seed(SEED)
-
     pairs, inference_ds, inference_metadata, y_true = build_test_dataset()
+
+    if RUN_MODEL_INFERENCE:
+        model = create_model()
+        model.load_weights(str(CHECKPOINT_PATH))
+
+        raw_predictions = run_inference(model, inference_ds)
+    else:
+        raw_predictions = load_raw_predictions()
 
     model = create_model()
     model.load_weights(str(CHECKPOINT_PATH))
 
-    predictions = run_inference(model, inference_ds, inference_metadata)
+    raw_predictions = run_inference(model, inference_ds)
 
+    predictions = postprocess_inference_dataset(raw_predictions, inference_metadata)
     detection_report, classification_report = evaluate_model(predictions, y_true, pairs)
 
     print_report(detection_report, classification_report)

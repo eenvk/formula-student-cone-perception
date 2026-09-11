@@ -23,25 +23,6 @@ from detection.detection_config import (
     GLOBAL_CROSS_CONTAINMENT_THRESHOLD
 )
 
-PATCH_COLORS = [
-    (255, 0, 0),       # red
-    (0, 255, 0),       # green
-    (0, 0, 255),       # blue
-    (255, 255, 0),     # yellow
-    (255, 0, 255),     # magenta
-    (0, 255, 255),     # cyan
-    (255, 128, 0),     # orange
-    (128, 0, 255),     # purple
-    (0, 128, 255),
-    (255, 0, 128),
-    (128, 255, 0),
-    (0, 255, 128),
-    (128, 128, 255),
-    (255, 128, 128),
-    (128, 255, 255),
-    (255, 255, 128),
-]
-
 NO_NMS_OUTPUT_DIR = Path("inference_No_nms")
 NO_NMS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -884,17 +865,10 @@ def postprocess_inference_dataset(raw_predictions, metadata):
             f"{num_predictions} predictions for {num_views} views."
         )
 
-    num_images = max(
-        item["image_index"] for item in metadata
-    ) + 1
+    num_images = max(item["image_index"] for item in metadata) + 1
 
-    patch_predictions = [
-        [] for _ in range(num_images)
-    ]
-
-    full_predictions = [
-        [] for _ in range(num_images)
-    ]
+    patch_predictions = [[] for _ in range(num_images)]
+    full_predictions = [[] for _ in range(num_images)]
 
     # --------------------------------------------------
     # 1. Convert every view prediction back to
