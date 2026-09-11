@@ -26,7 +26,6 @@ from detection.inference import (
 )
 
 from detection.model_utils import create_model
-from detection.inference import predict_boxes
 
 from evaluation.evaluation_utils import (
     DetectionEvaluator,

@@ -6,10 +6,6 @@ import cv2
 import numpy as np
 import random
 
-from detection.inference import (
-    resize_with_letterbox
-)
-
 from dataset.dataset_utils import (
     get_bounding_boxes_train_pairs,
     train_validation_split,
@@ -17,12 +13,6 @@ from dataset.dataset_utils import (
     segmentation_id_to_detection_id,
     load_image,
     load_annotation
-)
-
-from detection.inference import (
-    resize_with_letterbox,
-    create_combined_views,
-    get_patch_starts
 )
 
 from detection.detection_config import (
@@ -100,18 +90,29 @@ def build_train_val_datasets():
     val_loss_ds = build_val_loss_dataset(val_data)
 
     # 6.
-    selected_inference_paths = select_inference_subset(val_data, 0.2)
-    print("Number of images used during training to see inference the model", len(selected_inference_paths))
+    selected_inference_indices = select_inference_subset_indices(tf.shape(val_image_paths)[0], 0.2)
+    print("Number of images used during training to see inference the model", len(selected_inference_indices))
+
+    selected_inference_paths = tf.gather(val_image_paths, selected_inference_indices)
+    selected_inference_images_shapes = tf.gather(val_image_shapes, selected_inference_indices)
 
     val_inference_ds = build_inference_dataset(selected_inference_paths)
-    val_inference_metadata = build_inference_metadata(selected_inference_paths)
+    val_inference_metadata = build_inference_metadata(selected_inference_images_shapes)
 
     print("Inference metadata:", len(val_inference_metadata))
+
+    selected_val_bboxes = tf.gather(val_bboxes,selected_inference_indices)
+    selected_val_classes = tf.gather(val_classes, selected_inference_indices)
+
+    inference_y_true = {
+        "boxes": selected_val_bboxes,
+        "classes": selected_val_classes
+        }
 
     # we build also the solutions of the validation set because this information are not present in the inference_ds
     val_y_true = {"boxes": val_bboxes, "classes": val_classes}
 
-    return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, val_y_true
+    return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, inference_y_true
 
 def prepare_dataset_data(pairs):
     """
@@ -674,20 +675,178 @@ def build_inference_metadata(image_shapes):
 
     return all_metadata
 
-def select_inference_subset(image_paths, ratio=0.2):
-
-    num_images = tf.shape(image_paths)[0]
-
+def select_inference_subset_indices(num_images, ratio=0.2):
     num_selected = tf.cast(
-        tf.math.ceil(
-            tf.cast(num_images, tf.float32) * ratio
-        ),
+        tf.math.ceil(tf.cast(num_images, tf.float32) * ratio),
         tf.int32
     )
 
-    shuffled_paths = tf.random.experimental.stateless_shuffle(
-        image_paths,
+    indices = tf.range(num_images)
+
+    shuffled_indices = tf.random.experimental.stateless_shuffle(
+        indices,
         seed=[SEED, 0]
     )
 
-    return shuffled_paths[:num_selected]
+    return shuffled_indices[:num_selected]
+
+
+def get_patch_starts(image_size, patch_size, stride):
+    """
+    Return the starting coordinates of the patches along one axis.
+
+    Example with:
+        image_size = 2048
+        patch_size = 800
+        stride = 600
+
+    returns:
+        [0, 600, 1200, 1800]
+
+    The last patch can be smaller than 800 pixels and will
+    later be padded.
+    """
+
+    if stride <= 0:
+        raise ValueError("stride must be greater than 0.")
+
+    if stride >= patch_size:
+        raise ValueError(
+            "stride must be smaller than patch_size "
+            "to guarantee overlapping patches."
+        )
+
+    starts = [0]
+
+    while starts[-1] + patch_size < image_size:
+        starts.append(starts[-1] + stride)
+
+    return starts
+
+def resize_with_letterbox(image, target_size):
+    target_h, target_w = target_size
+
+    image_size = tf.cast(tf.shape(image)[:2], tf.float32)
+    image_height = image_size[0]
+    image_width = image_size[1]
+
+    scale = tf.minimum(
+        target_w / image_width,
+        target_h / image_height
+    )
+
+    resized_size_float = tf.round(image_size * scale)
+    resized_size = tf.cast(resized_size_float, tf.int32)
+
+    resized_h = resized_size[0]
+    resized_w = resized_size[1]
+
+    image = tf.image.resize(image, resized_size)
+
+    scale_y = resized_size_float[0] / image_height
+    scale_x = resized_size_float[1] / image_width
+
+    pad_y = (target_h - resized_h) // 2
+    pad_x = (target_w - resized_w) // 2
+
+    image = tf.image.pad_to_bounding_box(image, pad_y, pad_x, target_h, target_w)
+
+    return image, scale_x, scale_y, pad_x, pad_y
+
+def create_combined_views(image):
+    """
+    This functions create all the views from an image: patches and full_image
+
+    patches: piece of the original image of IMAGE_SIZExIMAGE_SIZE dimension. Their union covers the entire image.
+    full_image: it's the original image resize in a IMAGE_SIZExIMAGE_SIZE dimension preserving the ratio.
+    """
+
+    # patches is a list with all the patches
+    # metadata list of the information related to each single patch
+    patches, metadata = create_patches(image)
+
+    full_image, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
+    full_image = full_image.numpy() if tf.is_tensor(full_image) else full_image
+
+    patches = patches.astype(np.float32, copy=False)
+    full_image = np.asarray(full_image, dtype=np.float32)
+
+    # structure of views: [patch0, patch1, ..., patchN, full_image]
+    views = np.concatenate([patches, full_image[None, ...]], axis=0)
+
+    # the last element of views is the full_image, so we just need to append its metadata
+    metadata.append({
+        "is_patch": False,
+        "scale_x": float(scale_x.numpy()),
+        "scale_y": float(scale_y.numpy()),
+        "pad_x": float(pad_x.numpy()),
+        "pad_y": float(pad_y.numpy()),
+    })
+
+    return views, metadata
+
+def create_patches(image_rgb, patch_size=IMAGE_SIZE):
+    image = image_rgb.numpy() if tf.is_tensor(image_rgb) else image_rgb
+
+    image_height, image_width = image_rgb.shape[:2]
+    patch_height, patch_width = patch_size
+
+        # starting position of each patch
+    x_starts = get_patch_starts(image_width, patch_width, PATCH_STRIDE)
+    y_starts = get_patch_starts(image_height, patch_height, PATCH_STRIDE)
+
+    # extract the patches
+    patches = []
+    patch_metadata = []
+
+    for y_start in y_starts:
+        for x_start in x_starts:
+
+            patch, valid_width, valid_height = extract_patch(
+                image, x_start, y_start, patch_width, patch_height
+                )
+
+            patches.append(patch)
+
+            # Store the information needed to convert
+            # local coordinates to global coordinates.
+            patch_metadata.append({
+                "is_patch": True,
+                "offset_x": x_start,
+                "offset_y": y_start,
+                "valid_width": valid_width,
+                "valid_height": valid_height,
+            })
+            
+
+    patches = np.stack(patches, axis=0)
+
+    return patches, patch_metadata
+
+def extract_patch(image_rgb, x_start, y_start, patch_width, patch_height):
+    """
+    Extract a patch from the original image.
+
+    If the patch reaches the image boundary and is smaller than
+    the required size, black padding is added on the right/bottom.
+
+    The actual image content is NOT resized.
+    """
+
+    image_height, image_width = image_rgb.shape[:2]
+
+    x_end = min(x_start + patch_width, image_width)
+    y_end = min(y_start + patch_height, image_height)
+
+    crop = image_rgb[y_start:y_end, x_start:x_end]
+
+    valid_height, valid_width = crop.shape[:2]
+
+    patch = np.zeros(
+        (patch_height, patch_width, 3),
+        dtype=image_rgb.dtype
+    )
+
+    patch[:valid_height, :valid_width] = crop
+
+    return patch, valid_width, valid_height
