@@ -1,19 +1,19 @@
 #Novkovic
 
-'''
+"""
 Evaluate the complete end-to-end segmentation pipeline on the test set.
 
 For each test image, the file runs YOLO detection, uses the predicted bounding boxes as input for the U-Net segmentation model,
 compares the predicted semantic mask with the ground-truth mask,
 computes the IoU metrics, and saves a number of visual comparisons.
-'''
+"""
 
 import cv2
 import numpy as np
 import tensorflow as tf
 
-from dataset.dataset_utils import PROJECT_ROOT, annotation_to_semantic_mask, create_overlay, get_segmentation_test_pairs, load_image
-from detection.data_pipeline import build_inference_dataset, build_inference_metadata, prepare_dataset_data
+from dataset.dataset_utils import PROJECT_ROOT, annotation_to_semantic_mask, create_overlay, get_segmentation_test_pairs, load_annotation, load_image
+from detection.data_pipeline import build_inference_dataset, build_inference_metadata
 from detection.detection_config import CHECKPOINT_PATH, SEED
 from detection.inference import predict_inference_dataset
 from detection.model_utils import create_model
@@ -26,7 +26,27 @@ MODEL_DIR = PROJECT_ROOT / "models"
 SEGMENTATION_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 
 VISUALIZATION_DIR = MODEL_DIR / "segmentation_test"
-NUM_VISUALIZATIONS = 24
+
+
+
+def prepare_inference_data(pairs):
+    """Prepares image paths and original image sizes for batched detector inference."""
+    image_paths = []
+    image_shapes = []
+
+    for image_path, annotation_path in pairs:
+        annotation = load_annotation(annotation_path)
+
+        image_height = annotation["size"]["height"]
+        image_width = annotation["size"]["width"]
+
+        image_paths.append(str(image_path))
+        image_shapes.append([image_height, image_width])
+
+    image_paths = tf.constant(image_paths, dtype=tf.string)
+    image_shapes = tf.constant(image_shapes, dtype=tf.int32)
+
+    return image_paths, image_shapes
 
 def main():
 
@@ -46,7 +66,7 @@ def main():
 
     print(f"Test images: {len(pairs)}")
 
-    image_paths, _, _, image_shapes = prepare_dataset_data(pairs)
+    image_paths, image_shapes = prepare_inference_data(pairs)
 
     inference_ds = build_inference_dataset(image_paths)
     inference_metadata = build_inference_metadata(image_shapes)
@@ -64,12 +84,14 @@ def main():
 
         evaluator.update(gt_mask, predicted_mask)
 
-        if image_index < NUM_VISUALIZATIONS:
-            gt_overlay = create_overlay(image_bgr, gt_mask)
-            predicted_overlay = create_overlay(image_bgr, predicted_mask)
-            comparison = np.hstack((image_bgr, gt_overlay, predicted_overlay))
-            output_path = VISUALIZATION_DIR / f"{image_index:03d}_{image_path.stem}.jpg"
-            cv2.imwrite(str(output_path), comparison)
+
+        gt_overlay = create_overlay(image_bgr, gt_mask)
+        predicted_overlay = create_overlay(image_bgr, predicted_mask)
+
+        comparison = np.hstack((image_bgr, gt_overlay, predicted_overlay))
+
+        output_path = VISUALIZATION_DIR / f"{image_index:03d}_{image_path.stem}.jpg"
+        cv2.imwrite(str(output_path), comparison)
 
         if (image_index + 1) % 50 == 0 or image_index + 1 == len(pairs):
             print(f"Processed {image_index + 1}/{len(pairs)} images")

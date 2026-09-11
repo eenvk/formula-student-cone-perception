@@ -7,8 +7,8 @@ import tensorflow as tf
 from segmentation.segmentation_config import BASE_FILTERS, DROPOUT_RATE, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH
 
 
-'''Applies two convolutional layers with ReLU activation to extract visual features from the input.'''
 def conv_block(inputs, filters):
+    """Applies two convolutional layers with ReLU activation to extract visual features from the input."""
 
     x = tf.keras.layers.Conv2D(filters, kernel_size=3, padding="same", activation="relu")(inputs)
     x = tf.keras.layers.Conv2D(filters, kernel_size=3, padding="same", activation="relu")(x)
@@ -16,8 +16,8 @@ def conv_block(inputs, filters):
     return x
 
 
-'''Extracts features using a convolutional block and then reduces their spatial size with max pooling.'''
 def encoder_block(inputs, filters):
+    """Extracts features using a convolutional block and then reduces their spatial size with max pooling."""
 
     features = conv_block(inputs, filters)
     pooled = tf.keras.layers.MaxPooling2D(pool_size=2)(features)
@@ -25,9 +25,9 @@ def encoder_block(inputs, filters):
     return features, pooled
 
 
-'''Upsamples the feature maps, combines them with the corresponding encoder features through a skip connection, 
-and refines them with another convolutional block.'''
 def decoder_block(inputs, skip_features, filters):
+    """Upsamples the feature maps, combines them with the corresponding encoder features through a skip connection,
+    and refines them with another convolutional block."""
 
     x = tf.keras.layers.Conv2DTranspose(filters, kernel_size=2, strides=2, padding="same")(inputs)
     x = tf.keras.layers.Concatenate()([x, skip_features])
@@ -35,9 +35,8 @@ def decoder_block(inputs, skip_features, filters):
 
     return x
 
-
-'''builds the complete u-net'''
 def build_unet():
+    """builds the complete u-net"""
 
     inputs = tf.keras.layers.Input(shape=(INPUT_HEIGHT, INPUT_WIDTH, INPUT_CHANNELS))
 

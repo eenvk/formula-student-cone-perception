@@ -1,6 +1,6 @@
 #Novkovic
 
-"""segmentation inference from detected bounding boxes."""
+"""Segmentation inference from detected bounding boxes."""
 
 import random
 from typing import Sequence
@@ -18,8 +18,8 @@ MODEL_DIR = PROJECT_ROOT / "models"
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 
 
-"""Creates the final segmentation mask for the whole image"""
 def predict_segmentation(image_bgr: np.ndarray, boxes: Sequence[Box], model: tf.keras.Model) -> np.ndarray:
+    """Creates the final segmentation mask for the whole image"""
 
     image_height, image_width = image_bgr.shape[:2]
     semantic_mask = np.full((image_height, image_width), BACKGROUND_ID, dtype=np.uint8)

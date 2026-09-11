@@ -1,7 +1,7 @@
 #Novkovic
 
-'''Dataset pipeline for cone segmentation that transforms the original dataset
-in (img, mask) samples that can be given as input to the U net.'''
+"""Dataset pipeline for cone segmentation that transforms the original dataset
+in (img, mask) samples that can be given as input to the U net."""
 
 from pathlib import Path
 import random
@@ -15,11 +15,12 @@ from dataset.dataset_utils import Box, annotation_to_segmentation_instances, get
 from segmentation.segmentation_config import BATCH_SIZE, BBOX_CENTER_JITTER, BBOX_PADDING_MAX, BBOX_PADDING_MIN, BRIGHTNESS_JITTER, CONTRAST_JITTER, HORIZONTAL_FLIP_PROBABILITY, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH, MAX_ROTATION_DEGREES, RANDOM_SEED, SATURATION_JITTER, VALIDATION_FRACTION,ROTATION_PROBABILITY,COLOR_AUGMENTATION_PROBABILITY
 
 
-'''Creates a crop around the cone starting from its GT bounding box,
-then the box is enlarged with some padding to give to the network some context around the cone.
-During training, the crop center and padding are randomly changed to make the model less dependent 
-on perfectly centered bounding boxes.'''
+
 def create_crop_box(box: Box, image_height: int, image_width: int, rng: random.Random, training: bool) -> tuple[int, int, int, int]:
+    '''Creates a crop around the cone starting from its GT bounding box,
+    then the box is enlarged with some padding to give to the network some context around the cone.
+    During training, the crop center and padding are randomly changed to make the model less dependent
+    on perfectly centered bounding boxes.'''
 
     box_width = box.x_max - box.x_min
     box_height = box.y_max - box.y_min
@@ -47,14 +48,15 @@ def create_crop_box(box: Box, image_height: int, image_width: int, rng: random.R
     return x_min, y_min, x_max, y_max
 
 
-'''Resizes the cropped image to the fixed network input size while preserving the original aspect ratio.
-Empty space is filled with padding.
-During training or validation a ground-truth mask is available, so the same resize and padding operations are applied 
-to the mask to keep it perfectly aligned with the image.
-During inference, no ground-truth mask is available. In this case, only the image is resized and padded. 
-The returned metadata stores the padding and resized dimensions, 
-so that the predicted mask can later be unpadded and resized back to the original crop size.'''
+
 def letterbox_sample(image: np.ndarray, mask: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray | None, tuple[int, int, int, int]]:
+    """Resizes the cropped image to the fixed network input size while preserving the original aspect ratio.
+    Empty space is filled with padding.
+    During training or validation a ground-truth mask is available, so the same resize and padding operations are applied
+    to the mask to keep it perfectly aligned with the image.
+    During inference, no ground-truth mask is available. In this case, only the image is resized and padded.
+    The returned metadata stores the padding and resized dimensions,
+    so that the predicted mask can later be unpadded and resized back to the original crop size."""
 
     image_height, image_width = image.shape[:2]
 
@@ -86,11 +88,10 @@ def letterbox_sample(image: np.ndarray, mask: np.ndarray | None = None) -> tuple
     return padded_image, padded_mask, metadata
 
 
-'''
-Applies random geometric transformations during training: horizontal flipping and small rotations. 
-The same transformation is applied to both the image and its segmentation mask
-'''
+
 def apply_geometric_augmentation(image: np.ndarray, mask: np.ndarray, rng: random.Random) -> tuple[np.ndarray, np.ndarray]:
+    """Applies random geometric transformations during training: horizontal flipping and small rotations.
+    The same transformation is applied to both the image and its segmentation mask"""
 
     if rng.random() < HORIZONTAL_FLIP_PROBABILITY:
         image = cv2.flip(image, 1)
@@ -108,11 +109,10 @@ def apply_geometric_augmentation(image: np.ndarray, mask: np.ndarray, rng: rando
 
     return image, mask
 
-'''
-Randomly modifies brightness, contrast, and saturation. 
-It is applied only to the image, not to the mask.'''
+
 def apply_color_augmentation(image: np.ndarray, rng: random.Random) -> np.ndarray:
-    """Apply moderate brightness, contrast, and saturation augmentation."""
+    """Randomly modifies brightness, contrast, and saturation.
+    It is applied only to the image, not to the mask."""
 
     image_float = image.astype(np.float32)
 
@@ -132,10 +132,10 @@ def apply_color_augmentation(image: np.ndarray, rng: random.Random) -> np.ndarra
 
     return cv2.cvtColor(hsv_image.astype(np.uint8), cv2.COLOR_HSV2RGB)
 
-'''prepare one individual cone instance for the network, it combines
-all preprocessing operations for a single cone'''
-def prepare_instance_sample(image_rgb: np.ndarray, instance, rng: random.Random, training: bool) -> tuple[np.ndarray, np.ndarray]:
 
+def prepare_instance_sample(image_rgb: np.ndarray, instance, rng: random.Random, training: bool) -> tuple[np.ndarray, np.ndarray]:
+    """prepare one individual cone instance for the network, it combines
+    all preprocessing operations for a single cone"""
     image_height, image_width = image_rgb.shape[:2]
 
     x_min, y_min, x_max, y_max = create_crop_box(instance.bbox, image_height, image_width, rng, training)
@@ -157,10 +157,10 @@ def prepare_instance_sample(image_rgb: np.ndarray, instance, rng: random.Random,
 
     return image_crop, mask_crop
 
-'''
-Iterates over image–annotation pairs and produces one prepared (image, mask) sample for each cone instance. 
-During training, the data is shuffled.'''
+
 def segmentation_sample_generator(pairs: Sequence[tuple[Path, Path]], training: bool) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Iterates over image–annotation pairs and produces one prepared (image, mask) sample for each cone instance.
+    During training, the data is shuffled."""
 
     rng = random.Random(RANDOM_SEED)
     ordered_pairs = list(pairs)
@@ -182,9 +182,9 @@ def segmentation_sample_generator(pairs: Sequence[tuple[Path, Path]], training: 
             yield prepare_instance_sample(image_rgb, instance, rng, training)
 
 
-'''Creates the TensorFlow dataset used by the model. It takes the generated image–mask pairs,
-shuffles them for training, groups them into batches, and prepares the data efficiently for the network.'''
 def create_segmentation_dataset(pairs: Sequence[tuple[Path, Path]], training: bool) -> tf.data.Dataset:
+    """Creates the TensorFlow dataset used by the model. It takes the generated image–mask pairs,
+s   huffles them for training, groups them into batches, and prepares the data efficiently for the network."""
 
     output_signature = (
         tf.TensorSpec(shape=(INPUT_HEIGHT, INPUT_WIDTH, INPUT_CHANNELS), dtype=tf.float32),
@@ -201,8 +201,9 @@ def create_segmentation_dataset(pairs: Sequence[tuple[Path, Path]], training: bo
 
     return dataset
 
-'''Creates the final datasets used by the training script'''
+
 def create_train_validation_datasets() -> tuple[tf.data.Dataset, tf.data.Dataset]:
+    """Creates the final datasets used by the training script"""
 
     pairs = get_segmentation_train_pairs()
     train_pairs, validation_pairs = train_validation_split(pairs, validation_fraction=VALIDATION_FRACTION, seed=RANDOM_SEED)

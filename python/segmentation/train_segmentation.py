@@ -1,6 +1,6 @@
 #Novkovic
 
-#Training process of the U-Net model.
+"""Training process of the U-Net model."""
 
 import tensorflow as tf
 
@@ -14,12 +14,10 @@ MODEL_DIR = PROJECT_ROOT / "models"
 BEST_WEIGHTS_PATH = MODEL_DIR / "unet_best.weights.h5"
 BACKUP_DIR = MODEL_DIR / "training_backup"
 
-
-'''
-Creates the model directory, loads the training and validation datasets, 
-builds the U-Net, compiles it with the Adam optimizer and Binary Cross-Entropy loss, 
-and starts the training process.'''
 def main():
+    """Creates the model directory, loads the training and validation datasets,
+    builds the U-Net, compiles it with the Adam optimizer and Binary Cross-Entropy loss,
+    and starts the training process."""
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
