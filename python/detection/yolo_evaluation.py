@@ -199,31 +199,16 @@ def print_report(detection_report, classification_report):
 def main():
     tf.keras.utils.set_random_seed(SEED)
 
-    (
-        pairs,
-        inference_ds,
-        inference_metadata,
-        y_true
-    ) = build_test_dataset()
+    pairs, inference_ds, inference_metadata, y_true = build_test_dataset()
 
     model = create_model()
+    model.load_weights(str(CHECKPOINT_PATH))
 
-    model.load_weights(
-        str(CHECKPOINT_PATH)
-    )
-
-    predictions = run_inference(
-        model,
-        inference_ds,
-        inference_metadata
-    )
+    predictions = run_inference(model, inference_ds, inference_metadata)
 
     detection_report, classification_report = evaluate_model(predictions, y_true, pairs)
 
-    print_report(
-        detection_report,
-        classification_report
-    )
+    print_report(detection_report, classification_report)
 
 
 if __name__ == "__main__":

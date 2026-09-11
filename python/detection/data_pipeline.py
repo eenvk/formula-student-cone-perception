@@ -38,6 +38,78 @@ from detection.detection_config import (
     NUM_NEGATIVE_CROP_ATTEMPTS
 )
 
+def build_train_val_datasets():
+    """
+    Builds training and validation datasets from the complete dataset.
+    
+    Creates TensorFlow datasets by:
+    1. Collecting all image-annotation pairs
+    2. Splitting data into training and validation sets
+    3. Parsing annotations to extract bounding boxes and classes
+    4. Build the single element of the dataset
+    5. Build train and validation set with images and prepares batching
+    6. Build the inference validation set
+    
+    Returns:
+        tuple: (train_ds, val_ds) TensorFlow datasets ready for training
+    """
+
+    # 1. pairs of the type: [image_dir, annotation_dir]
+    pairs = get_bounding_boxes_train_pairs()
+    num_samples = len(pairs)
+
+    print(f"\nImage/annotation pairs found: {num_samples}")
+
+    # 2.
+    train_pairs, val_pairs = train_validation_split(pairs, SPLIT_RATIO, SEED)
+
+    num_train = len(train_pairs)
+    num_val = len(val_pairs)
+
+    # Display the split results
+    print("\nTraining samples:", num_train)
+    print("Validation samples:", num_val)
+
+    # 3.
+    print("Reading annotations and extract bounding boxes ground truth and classes...")
+    train_image_paths, train_classes, train_bboxes, _  = prepare_dataset_data(train_pairs)
+    val_image_paths, val_classes, val_bboxes, val_image_shapes = prepare_dataset_data(val_pairs)
+
+    print("\nDataset loaded with image paths.")
+    print("Training set features:")
+    print("- Images:", train_image_paths.shape)
+    print("- Classes:", train_classes.shape)
+    print("- Bounding boxes:", train_bboxes.shape)
+    print("Validation set features:")
+    print("- Images:", val_image_paths.shape)
+    print("- Classes:", val_classes.shape)
+    print("- Bounding bobuild_data_structurexes:", val_bboxes.shape)
+
+    # 4.
+    # Create a TensorFlow dataset by combining image paths, classes, and bounding boxes
+    # from_tensor_slices creates a dataset where each element is a slice of the inputs
+    # now the structure of the dataset is :
+    # 
+    # elem 0: (path, list_of_class, list_of_boxes), this will be then transform in
+    # elem 0: (image, list_of_class, list_of boxes)
+    train_data = build_data_structure(train_image_paths, train_classes, train_bboxes)
+    val_data = build_data_structure(val_image_paths, val_classes, val_bboxes)
+
+    # 5.
+    train_ds = build_train_dataset(train_data, num_train)
+    val_loss_ds = build_val_loss_dataset(val_data)
+
+    # 6.
+    val_inference_ds = build_inference_dataset(val_image_paths)
+    val_inference_metadata = build_inference_metadata(val_image_shapes)
+
+    print("Inference metadata:", len(val_inference_metadata))
+
+    # we build also the solutions of the validation set because this information are not present in the inference_ds
+    val_y_true = {"boxes": val_bboxes, "classes": val_classes}
+
+    return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, val_y_true
+
 def prepare_dataset_data(pairs):
     """
     Reads the annotations using dataset_utils and converts them
@@ -125,9 +197,7 @@ def load_image(image_path):
         expand_animations=False,
     )
 
-    image.set_shape(
-        [None, None, 3]
-    )
+    image.set_shape([None, None, 3])
 
     return image
 
@@ -180,77 +250,6 @@ def dict_to_tuple(inputs):
     )
 
 
-def build_train_val_datasets():
-    """
-    Builds training and validation datasets from the complete dataset.
-    
-    Creates TensorFlow datasets by:
-    1. Collecting all image-annotation pairs
-    2. Splitting data into training and validation sets
-    3. Parsing annotations to extract bounding boxes and classes
-    4. Build the single element of the dataset
-    5. Build train and validation set with images and prepares batching
-    6. Build the inference validation set
-    
-    Returns:
-        tuple: (train_ds, val_ds) TensorFlow datasets ready for training
-    """
-
-    # 1. pairs of the type: [image_dir, annotation_dir]
-    pairs = get_bounding_boxes_train_pairs()
-    num_samples = len(pairs)
-
-    print(f"\nImage/annotation pairs found: {num_samples}")
-
-    # 2.
-    train_pairs, val_pairs = train_validation_split(pairs, SPLIT_RATIO, SEED)
-
-    num_train = len(train_pairs)
-    num_val = len(val_pairs)
-
-    # Display the split results
-    print("\nTraining samples:", num_train)
-    print("Validation samples:", num_val)
-
-    # 3.
-    print("Reading annotations and extract bounding boxes ground truth and classes...")
-    train_image_paths, train_classes, train_bboxes, _  = prepare_dataset_data(train_pairs)
-    val_image_paths, val_classes, val_bboxes, val_image_shapes = prepare_dataset_data(val_pairs)
-
-    print("\nDataset loaded with image paths.")
-    print("Training set features:")
-    print("- Images:", train_image_paths.shape)
-    print("- Classes:", train_classes.shape)
-    print("- Bounding boxes:", train_bboxes.shape)
-    print("Validation set features:")
-    print("- Images:", val_image_paths.shape)
-    print("- Classes:", val_classes.shape)
-    print("- Bounding bobuild_data_structurexes:", val_bboxes.shape)
-
-    # 4.
-    # Create a TensorFlow dataset by combining image paths, classes, and bounding boxes
-    # from_tensor_slices creates a dataset where each element is a slice of the inputs
-    # now the structure of the dataset is :
-    # 
-    # elem 0: (path, list_of_class, list_of_boxes), this will be then transform in
-    # elem 0: (image, list_of_class, list_of boxes)
-    train_data = build_data_structure(train_image_paths, train_classes, train_bboxes)
-    val_data = build_data_structure(val_image_paths, val_classes, val_bboxes)
-
-    # 5.
-    train_ds = build_train_dataset(train_data, num_train)
-    val_loss_ds = build_val_loss_dataset(val_data)
-
-    # 6.
-    val_inference_ds = build_inference_dataset(val_image_paths)
-    val_inference_metadata = build_inference_metadata(val_image_shapes)
-
-    print("Inference metadata:", len(val_inference_metadata))
-
-    # we build also the solutions of the validation set because this information are not present in the inference_ds
-    val_y_true = {"boxes": val_bboxes, "classes": val_classes}
-
-    return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, val_y_true
 
 def build_data_structure(image_paths, classes, bboxes):
     """
@@ -262,6 +261,11 @@ def build_data_structure(image_paths, classes, bboxes):
     )
 
 def positive_crop(image_path, classes, bbox):
+    """
+    it applies the positive crop: crop the image to IMAGE_SIZExIMAGE_SIZE with at least 1 cone.
+    the cone should be in a random position w.r.t. the crop and it needs to appear with at least a
+    MIN_RETAINED_AREA, otherwise another crop should be considered.
+    """
     image = load_image(image_path)
 
     image_height = tf.shape(image)[0]
@@ -275,7 +279,7 @@ def positive_crop(image_path, classes, bbox):
         image_width >= crop_width
     )
 
-
+    # [all rows, selected coloumn: 0 is x_min, 1 is y_min, etc.]
     box_widths = bbox[:, 2] - bbox[:, 0]
     box_heights = bbox[:, 3] - bbox[:, 1]
 
@@ -284,11 +288,13 @@ def positive_crop(image_path, classes, bbox):
     valid_indices = tf.where(can_fit)[:, 0]
     n_valid = tf.shape(valid_indices)[0]
 
+    # if it's not possible to apply any positive_crop, then use a full_image
     def fallback():
         return load_dataset(image_path, classes, bbox)
 
-
+    # if it's possible, build a positive crop
     def make_positive_crop():
+        # select a random cone of the image
         random_index = tf.random.uniform([], 0, n_valid, dtype=tf.int32)
         selected_cone = valid_indices[random_index]
 
@@ -307,39 +313,22 @@ def positive_crop(image_path, classes, bbox):
         min_crop_y = tf.maximum(0, tf.cast(tf.math.ceil(y2 - crop_height), tf.int32))
         max_crop_y = tf.minimum(tf.cast(tf.math.floor(y1), tf.int32), image_height - crop_height)
 
+        # crop in this range that guarantees that the cone is inside the crop
         crop_x = tf.random.uniform([], min_crop_x, max_crop_x + 1, dtype=tf.int32)
         crop_y = tf.random.uniform([], min_crop_y, max_crop_y + 1, dtype=tf.int32)
 
+        # apply the crop
         image_crop = tf.image.crop_to_bounding_box(image, crop_y, crop_x, crop_height, crop_width)
 
-        offset = tf.cast(
-            [crop_x, crop_y, crop_x, crop_y],
-            tf.float32
-        )
-
+        # now we need to move the bounding box w.r.t. the crop we applied
+        offset = tf.cast([crop_x, crop_y, crop_x, crop_y], tf.float32)
         crop_bbox = bbox - offset
 
-        bx1 = tf.clip_by_value(crop_bbox[:, 0], 0.0, crop_width)
-        by1 = tf.clip_by_value(crop_bbox[:, 1], 0.0, crop_height)
-        bx2 = tf.clip_by_value(crop_bbox[:, 2], 0.0, crop_width)
-        by2 = tf.clip_by_value(crop_bbox[:, 3], 0.0, crop_height)
-
-        original_area = (bbox[:, 2] - bbox[:, 0]) * (bbox[:, 3] - bbox[:, 1])
-        cropped_area = (
-            tf.maximum(0.0, bx2 - bx1) *
-            tf.maximum(0.0, by2 - by1)
-        )
-
-        retained_area = cropped_area / tf.maximum(original_area, 1e-6)
+        clipped_bbox, retained_area = clip_boxes_and_compute_retained_area(bbox, crop_bbox, crop_width, crop_height)
         valid = retained_area >= MIN_RETAINED_AREA
 
-        clipped_bbox = tf.stack(
-            [bx1, by1, bx2, by2],
-            axis=-1
-        )
         clipped_bbox = tf.boolean_mask(clipped_bbox, valid)
         cropped_classes = tf.boolean_mask(classes, valid)
-
 
         return {
             "images": image_crop,
@@ -355,7 +344,25 @@ def positive_crop(image_path, classes, bbox):
         fallback
         )
 
+def clip_boxes_and_compute_retained_area(bbox, crop_bbox, crop_width, crop_height):
+    bx1 = tf.clip_by_value(crop_bbox[:, 0], 0.0, crop_width)
+    by1 = tf.clip_by_value(crop_bbox[:, 1], 0.0, crop_height)
+    bx2 = tf.clip_by_value(crop_bbox[:, 2], 0.0, crop_width)
+    by2 = tf.clip_by_value(crop_bbox[:, 3], 0.0, crop_height)
+
+    clipped_bbox = tf.stack([bx1, by1, bx2, by2], axis=-1)
+
+    original_area = ((bbox[:, 2] - bbox[:, 0]) * (bbox[:, 3] - bbox[:, 1]))
+
+    cropped_area = (tf.maximum(0.0, bx2 - bx1) * tf.maximum(0.0, by2 - by1))
+    retained_area = (cropped_area / tf.maximum(original_area, 1e-6))
+
+    return clipped_bbox, retained_area
+
 def negative_crop(image_path, classes, bbox):
+    """
+    It crops an image such that no cone is present
+    """
     image = load_image(image_path)
 
     image_height = tf.shape(image)[0]
@@ -371,19 +378,8 @@ def negative_crop(image_path, classes, bbox):
 
     def make_negative_crop():
         # Generate several random candidate crops.
-        crop_xs = tf.random.uniform(
-            [NUM_NEGATIVE_CROP_ATTEMPTS],
-            minval=0,
-            maxval=image_width - crop_width + 1,
-            dtype=tf.int32
-        )
-
-        crop_ys = tf.random.uniform(
-            [NUM_NEGATIVE_CROP_ATTEMPTS],
-            minval=0,
-            maxval=image_height - crop_height + 1,
-            dtype=tf.int32
-        )
+        crop_xs = tf.random.uniform([NUM_NEGATIVE_CROP_ATTEMPTS], 0, image_width - crop_width + 1, dtype=tf.int32)
+        crop_ys = tf.random.uniform([NUM_NEGATIVE_CROP_ATTEMPTS], 0, image_height - crop_height + 1, dtype=tf.int32)
 
         crop_xs_float = tf.cast(crop_xs, bbox.dtype)
         crop_ys_float = tf.cast(crop_ys, bbox.dtype)
@@ -403,48 +399,33 @@ def negative_crop(image_path, classes, bbox):
         intersection_area = intersection_width * intersection_height
 
         # A candidate is negative only if it intersects no bbox.
-        valid_candidates = tf.reduce_all(
-            intersection_area == 0.0,
-            axis=1
-        )
+        valid_candidates = tf.reduce_all(intersection_area == 0.0, axis=1)
 
         valid_indices = tf.where(valid_candidates)[:, 0]
         n_valid = tf.shape(valid_indices)[0]
 
         def use_negative_crop():
-            random_index = tf.random.uniform(
-                [],
-                minval=0,
-                maxval=n_valid,
-                dtype=tf.int32
-            )
+            random_index = tf.random.uniform([], 0, n_valid, dtype=tf.int32)
 
             selected = valid_indices[random_index]
 
             crop_x = crop_xs[selected]
             crop_y = crop_ys[selected]
 
-            image_crop = tf.image.crop_to_bounding_box(
-                image,
-                crop_y,
-                crop_x,
-                crop_height,
-                crop_width
-            )
+            image_crop = tf.image.crop_to_bounding_box(image, crop_y, crop_x, crop_height, crop_width)
 
             return {
                 "images": image_crop,
                 "bounding_boxes": {
-                    "boxes": tf.zeros([0, 4], dtype=bbox.dtype),
-                    "classes": tf.zeros([0], dtype=classes.dtype)
+                    "boxes": tf.zeros([0, 4], dtype=bbox.dtype), #no bboxes
+                    "classes": tf.zeros([0], dtype=classes.dtype) #no classes
                 }
             }
 
         def fallback():
             return load_dataset(image_path, classes, bbox)
 
-        return tf.cond(
-            n_valid > 0,
+        return tf.cond(n_valid > 0,
             use_negative_crop,
             fallback
         )
@@ -452,8 +433,7 @@ def negative_crop(image_path, classes, bbox):
     def fallback():
         return load_dataset(image_path, classes, bbox)
 
-    return tf.cond(
-        can_crop,
+    return tf.cond(can_crop,
         make_negative_crop,
         fallback
     )
@@ -481,6 +461,14 @@ def build_train_dataset(train_data, num_train):
     We also specify charateristics of the set during the training:
     reshuffle, ragged_batch, prefetch.
     """
+    
+    # Shuffle the training samples at each epoch.
+    train_data = train_data.shuffle(
+        buffer_size=num_train,
+        seed=SEED,
+        reshuffle_each_iteration=True
+    )
+
     #load full_image or crop_image
     train_ds = train_data.map(
         load_train_dataset,
@@ -488,12 +476,6 @@ def build_train_dataset(train_data, num_train):
         deterministic=False,
     )
 
-    # Shuffle the training samples at each epoch.
-    train_data = train_data.shuffle(
-        buffer_size=num_train,
-        seed=SEED,
-        reshuffle_each_iteration=True
-    )
 
     # we fix the image in 800x800
     # NOTe: crop image are already 800x800, while the full_image are not

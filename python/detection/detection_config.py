@@ -35,7 +35,7 @@ NUM_CLASSES = len(CLASS_MAPPING)
 DETECTION_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = DETECTION_DIR.parent.parent
 
-CHECKPOINT_PATH = DETECTION_DIR / "best_yolov8.weights.h5"
+CHECKPOINT_PATH = PROJECT_DIR / "models" / "best_yolov8.weights.h5"
 DETECTIONS_PATH = DETECTION_DIR / "detections.png"
 
 #inference
