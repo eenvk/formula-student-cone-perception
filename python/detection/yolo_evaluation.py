@@ -95,28 +95,14 @@ def build_test_dataset():
     )
 
 
-def run_inference(
-    model,
-    inference_ds,
-    inference_metadata
-):
-    raw_predictions = model.predict(
-        inference_ds
-    )
-
-    predictions = postprocess_inference_dataset(
-        raw_predictions,
-        inference_metadata,
-    )
+def run_inference(model, inference_ds, inference_metadata):
+    raw_predictions = model.predict(inference_ds)
+    predictions = postprocess_inference_dataset(raw_predictions, inference_metadata,)
 
     return predictions
 
 
-def evaluate_model(
-    predictions,
-    y_true,
-    pairs
-):
+def evaluate_model(predictions, y_true, pairs):
     detection_evaluator = DetectionEvaluator()
 
     classification_evaluator = ClassificationEvaluator(
@@ -142,11 +128,7 @@ def evaluate_model(
         image_predictions = predictions[image_index]
 
         pred_boxes = [
-            prediction_to_box(
-                prediction["bbox"],
-                prediction["class_id"],
-                prediction["score"],
-            )
+            prediction
             for prediction in image_predictions
         ]
 
@@ -236,11 +218,7 @@ def main():
         inference_metadata
     )
 
-    detection_report, classification_report = evaluate_model(
-        predictions,
-        y_true,
-        pairs
-    )
+    detection_report, classification_report = evaluate_model(predictions, y_true, pairs)
 
     print_report(
         detection_report,

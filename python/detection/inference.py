@@ -933,11 +933,7 @@ def postprocess_inference_dataset(raw_predictions, metadata):
         image_final_predictions = final_nms(image_patch_predictions, full_predictions[image_index], image_width, image_height)
 
         final_predictions.append([
-            prediction_to_box(
-                prediction["bbox"],
-                prediction["class_id"],
-                prediction["score"],
-            )
+            prediction_to_box(prediction["bbox"], prediction["class_id"], prediction["score"],)
             for prediction in image_final_predictions
         ])
         
