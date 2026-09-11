@@ -188,8 +188,9 @@ def build_train_val_datasets():
     1. Collecting all image-annotation pairs
     2. Splitting data into training and validation sets
     3. Parsing annotations to extract bounding boxes and classes
-    4. Applying data augmentation and preprocessing to training data
-    5. Batching and prefetching for efficient training
+    4. Build the single element of the dataset
+    5. Build train and validation set with images and prepares batching
+    6. Build the inference validation set
     
     Returns:
         tuple: (train_ds, val_ds) TensorFlow datasets ready for training
@@ -203,59 +204,62 @@ def build_train_val_datasets():
 
     # 2.
     train_pairs, val_pairs = train_validation_split(pairs, SPLIT_RATIO, SEED)
-    print("Train pairs: ", len(train_pairs))
-    print("Val pairs: ", len(val_pairs))
 
     num_train = len(train_pairs)
     num_val = len(val_pairs)
-
-    # 3.
-    print("Reading annotations ...")
-    train_image_paths, train_classes, train_bboxes, _  = prepare_dataset_data(train_pairs)
-    val_image_paths, val_classes, val_bboxes, val_image_shapes = prepare_dataset_data(val_pairs)
-
-    print("\nDataset loaded.")
-    print("Images:", train_image_paths.shape)
-    print("Classes:", train_classes.shape)
-    print("Bounding boxes:", train_bboxes.shape)
-
-    # Create a TensorFlow dataset by combining image paths, classes, and bounding boxes
-    # from_tensor_slices creates a dataset where each element is a slice of the inputs
-    # now the structure of the dataset is:
-    # elem 0: (path, list_of_class, list_of_boxes)
-    train_data = tf.data.Dataset.from_tensor_slices(
-        (
-            train_image_paths,
-            train_classes,
-            train_bboxes,
-        )
-    )
-
-    val_data = tf.data.Dataset.from_tensor_slices(
-        (
-            val_image_paths,
-            val_classes,
-            val_bboxes
-        )
-    )
 
     # Display the split results
     print("\nTraining samples:", num_train)
     print("Validation samples:", num_val)
 
+    # 3.
+    print("Reading annotations and extract bounding boxes ground truth and classes...")
+    train_image_paths, train_classes, train_bboxes, _  = prepare_dataset_data(train_pairs)
+    val_image_paths, val_classes, val_bboxes, val_image_shapes = prepare_dataset_data(val_pairs)
+
+    print("\nDataset loaded with image paths.")
+    print("Training set features:")
+    print("- Images:", train_image_paths.shape)
+    print("- Classes:", train_classes.shape)
+    print("- Bounding boxes:", train_bboxes.shape)
+    print("Validation set features:")
+    print("- Images:", val_image_paths.shape)
+    print("- Classes:", val_classes.shape)
+    print("- Bounding bobuild_data_structurexes:", val_bboxes.shape)
+
+    # 4.
+    # Create a TensorFlow dataset by combining image paths, classes, and bounding boxes
+    # from_tensor_slices creates a dataset where each element is a slice of the inputs
+    # now the structure of the dataset is :
+    # 
+    # elem 0: (path, list_of_class, list_of_boxes), this will be then transform in
+    # elem 0: (image, list_of_class, list_of boxes)
+    train_data = build_data_structure(train_image_paths, train_classes, train_bboxes)
+    val_data = build_data_structure(val_image_paths, val_classes, val_bboxes)
+
+    # 5.
     train_ds = build_train_dataset(train_data, num_train)
     val_loss_ds = build_val_loss_dataset(val_data)
 
+    # 6.
     val_inference_ds = build_inference_dataset(val_image_paths)
     val_inference_metadata = build_inference_metadata(val_image_shapes)
+
     print("Inference metadata:", len(val_inference_metadata))
-    val_y_true = {
-        "boxes": val_bboxes,
-        "classes": val_classes,
-    }
+
+    # we build also the solutions of the validation set because this information are not present in the inference_ds
+    val_y_true = {"boxes": val_bboxes, "classes": val_classes}
 
     return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, val_y_true
 
+def build_data_structure(image_paths, classes, bboxes):
+    """
+    build the element of the dataset. Each element is formed by its
+    image_path, class, bbox
+    """
+    return tf.data.Dataset.from_tensor_slices(
+        (image_paths, classes, bboxes)
+    )
 
 def positive_crop(image_path, classes, bbox):
     image = load_image(image_path)
@@ -466,6 +470,24 @@ def load_train_dataset(image_path, classes, bbox):
 
 
 def build_train_dataset(train_data, num_train):
+    """
+    It describes the train dataset.
+    It substitutes the paths in the dataset with the corrisponding images.
+    Images in the training set can be of three types:
+    1) full_image resize from its dimension to IMAGE_SIZE
+    2) positive_crop: we crop an image to IMAGE_SIZE with at least 1 cone (the cone is in a random position of the crop)
+    3) negative_crop: we crop an image to IMAGE_SIZE without any cone.
+
+    We also specify charateristics of the set during the training:
+    reshuffle, ragged_batch, prefetch.
+    """
+    #load full_image or crop_image
+    train_ds = train_data.map(
+        load_train_dataset,
+        num_parallel_calls=NUM_PARALLEL_CALLS,
+        deterministic=False,
+    )
+
     # Shuffle the training samples at each epoch.
     train_data = train_data.shuffle(
         buffer_size=num_train,
@@ -473,39 +495,28 @@ def build_train_dataset(train_data, num_train):
         reshuffle_each_iteration=True
     )
 
-    train_ds = train_data.map(
-        load_train_dataset,
-        num_parallel_calls=NUM_PARALLEL_CALLS,
-        deterministic=False,
-    )
-
-
-    # data augmentation DOPO batching
-    # Questo è più efficiente: resizziamo interi batch, non singole immagini
-    # La variabilità JitteredResize (0.75-1.30) aggiunge diversità ai dati di training
+    # we fix the image in 800x800
+    # NOTe: crop image are already 800x800, while the full_image are not
     train_ds = train_ds.map(
         resize_sample,
         num_parallel_calls=NUM_PARALLEL_CALLS,
         deterministic=False,
     )
 
-    # Raggruppa gli elementi in batch dopo aver caricato le immagini
-    # I batch permettono di processare più immagini insieme sulla GPU (più efficiente)
-    # drop_remainder=True: scarta gli ultimi elementi se non fanno un batch completo
+    # group elems in batch
+    # drop_remainder=True: discard the last elems if they do not fill a complete batch
     train_ds = train_ds.ragged_batch(BATCH_SIZE,drop_remainder=True)
 
-    # FORMAT CONVERSION
-    # Converte il formato da dict a tuple per compatibilità con il modello
-    # Il modello si aspetta input come (images, bounding_boxes), non come dizionario
+    # FORMAT CONVERSION:
+    # the model expects a tuple format (images, bounding_boxes), not a dictionary
     train_ds = train_ds.map(
         dict_to_tuple,
         num_parallel_calls=NUM_PARALLEL_CALLS,
         deterministic=False,
     )
-        # Prefetch prepares data in advance while the model is training
+
+    # Prefetch prepares data in advance while the model is training
     # it reduces the waiting time
-    # PREFETCH_BUFFER è grande per training, piccolo (1) per validazione
-    
     train_ds = train_ds.prefetch(PREFETCH_BUFFER)
 
     train_options = tf.data.Options()
@@ -513,13 +524,15 @@ def build_train_dataset(train_data, num_train):
 
     train_ds = train_ds.with_options(train_options)
 
-
     return train_ds
 
-def resize_sample(inputs):
-    image = inputs["images"]
-    boxes = inputs["bounding_boxes"]["boxes"]
-    classes = inputs["bounding_boxes"]["classes"]
+def resize_sample(sample):
+    """
+    it resizes the sample from its original size to IMAGE_SIZExIMAGE_SIZE
+    """
+    image = sample["images"]
+    boxes = sample["bounding_boxes"]["boxes"]
+    classes = sample["bounding_boxes"]["classes"]
 
     image, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
 
@@ -541,14 +554,15 @@ def resize_sample(inputs):
     }
 
 def build_val_loss_dataset(val_data):
-
-    val_ds = val_data.map(
-        load_dataset,
-        num_parallel_calls=1,
-    )
-
+    """
+    validation set built in order to check whether overfitting may occur. This set will be test during the training just by
+    looking at the loss function that it will generate the problem
+    """
+    # Upload the images and fix the size to IMAGE_SIZE
+    val_ds = val_data.map(load_dataset, num_parallel_calls=1)
     val_ds = val_ds.map(resize_sample, num_parallel_calls=1)
 
+    # group in batch and bring the format in tuple form.
     val_ds = val_ds.ragged_batch(BATCH_SIZE, drop_remainder=False)
     val_ds = val_ds.map(dict_to_tuple, num_parallel_calls=1)
 
@@ -563,6 +577,10 @@ def _create_combined_views_numpy(image):
     return views.astype(np.float32)
 
 def create_inference_views(image_path):
+    """
+    here we substitute the image_path with the corresponding image.
+    then we create al
+    """
     image = load_image(image_path)
 
     views = tf.py_function(
@@ -581,14 +599,15 @@ def create_inference_views(image_path):
     return views
 
 def build_inference_dataset(image_paths):
-    ds = tf.data.Dataset.from_tensor_slices(
-        image_paths
-    )
+    """
+    the validation inference set is used to verify the real behaviour of the model. this dataset will be composed
+    by patches of IMAGE_SIZE dimension and the original full image resize to IMAGE_SIZE.
+    This set is processed by the model as the test_set will be evaluated.
+    """
 
-    ds = ds.map(
-        create_inference_views,
-        num_parallel_calls=1,
-    )
+    ds = tf.data.Dataset.from_tensor_slices(image_paths)
+
+    ds = ds.map(create_inference_views,num_parallel_calls=1)
 
     # prima:
     # elemento 0 -> [N0, 800, 800, 3]
@@ -601,16 +620,16 @@ def build_inference_dataset(image_paths):
 
     ds = ds.unbatch()
 
-    ds = ds.batch(
-        PATCH_BATCH_SIZE,
-        drop_remainder=False,
-    )
-
+    ds = ds.batch(PATCH_BATCH_SIZE, drop_remainder=False) #validation to all the images of the inference_dataset
     ds = ds.prefetch(1)
 
     return ds
 
 def build_inference_metadata(image_shapes):
+    """
+    list of informations about the inference dataset.
+    It's needed in order to obtain information about the predictions of the images.
+    """
     all_metadata = []
 
     patch_height, patch_width = IMAGE_SIZE
@@ -621,24 +640,17 @@ def build_inference_metadata(image_shapes):
         image_height = int(shape[0])
         image_width = int(shape[1])
 
+        # we obtain a list of starting position of all the patches w.r.t. a single image
         x_starts = get_patch_starts(image_width, patch_width, PATCH_STRIDE)
         y_starts = get_patch_starts(image_height, patch_height, PATCH_STRIDE)
 
         local_view_index = 0
 
-        # PATCHES
+        # PATCHES metadata
         for y_start in y_starts:
             for x_start in x_starts:
-
-                valid_width = min(
-                    patch_width,
-                    image_width - x_start
-                )
-
-                valid_height = min(
-                    patch_height,
-                    image_height - y_start
-                )
+                valid_width = min(patch_width, image_width - x_start)
+                valid_height = min(patch_height, image_height - y_start)
 
                 all_metadata.append({
                     "view_index": len(all_metadata),
@@ -659,11 +671,8 @@ def build_inference_metadata(image_shapes):
 
                 local_view_index += 1
 
-        # FULL IMAGE
-        scale = min(
-            target_width / image_width,
-            target_height / image_height
-        )
+        # FULL IMAGE metadata
+        scale = min(target_width / image_width, target_height / image_height)
 
         resized_width = int(np.round(image_width * scale))
         resized_height = int(np.round(image_height * scale))

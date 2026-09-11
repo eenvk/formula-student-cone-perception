@@ -160,24 +160,12 @@ def visualize_train_samples(train_ds, num_samples=30):
 
 
 def main():
-    # ========================================================
-    # REPRODUCIBILITY
-    # ========================================================
-
     tf.keras.utils.set_random_seed(SEED)
-
-    # ========================================================
-    # GPU CONFIGURATION
-    # ========================================================
-
     configure_gpu()
 
     # DATASET
     train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, inference_y_true = build_train_val_datasets()
-    visualize_train_samples(
-        train_ds,
-        num_samples=30
-    )
+    visualize_train_samples(train_ds, num_samples=30)
 
     print("Dataset is built")
     

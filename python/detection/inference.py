@@ -657,6 +657,15 @@ def predict_boxes(image_bgr, model) -> list[Box]:
     ]
 
 def create_combined_views(image):
+    """
+    This functions create all the views from an image: patches and full_image
+
+    patches: piece of the original image of IMAGE_SIZExIMAGE_SIZE dimension. Their union covers the entire image.
+    full_image: it's the original image resize in a IMAGE_SIZExIMAGE_SIZE dimension preserving the ratio.
+    """
+
+    # patches is a list with all the patches
+    # metadata list of the information related to each single patch
     patches, metadata = create_patches(image)
 
     full_image, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
@@ -665,8 +674,10 @@ def create_combined_views(image):
     patches = patches.astype(np.float32, copy=False)
     full_image = np.asarray(full_image, dtype=np.float32)
 
-    images = np.concatenate([patches, full_image[None, ...]], axis=0)
+    # structure of views: [patch0, patch1, ..., patchN, full_image]
+    views = np.concatenate([patches, full_image[None, ...]], axis=0)
 
+    # the last element of views is the full_image, so we just need to append its metadata
     metadata.append({
         "is_patch": False,
         "scale_x": float(scale_x.numpy()),
@@ -675,7 +686,7 @@ def create_combined_views(image):
         "pad_y": float(pad_y.numpy()),
     })
 
-    return images, metadata
+    return views, metadata
 
 def get_view_detections(predictions, index):
     boxes = predictions["boxes"][index]
