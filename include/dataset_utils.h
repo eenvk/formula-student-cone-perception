@@ -1,4 +1,4 @@
-// Author: Renzi
+//Renzi
 
 #ifndef DATASET_UTILS_H
 #define DATASET_UTILS_H
