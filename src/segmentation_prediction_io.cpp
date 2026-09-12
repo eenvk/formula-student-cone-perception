@@ -1,4 +1,4 @@
-//
+// Novkovic
 
 #include "segmentation_prediction_io.h"
 
@@ -8,11 +8,7 @@
 #include <opencv2/imgcodecs.hpp>
 
 cv::Mat load_prediction_mask(const std::filesystem::path& mask_dir, const std::filesystem::path& image_path, const cv::Size& expected_size) {
-    std::filesystem::path mask_path = mask_dir / (image_path.filename().string() + ".png");
-
-    if (!std::filesystem::is_regular_file(mask_path)) {
-        mask_path = mask_dir / (image_path.stem().string() + ".png");
-    }
+    const std::filesystem::path mask_path = mask_dir / (image_path.stem().string() + ".png");
 
     if (!std::filesystem::is_regular_file(mask_path)) {
         throw std::runtime_error("Prediction mask not found for: " + image_path.filename().string());

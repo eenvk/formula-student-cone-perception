@@ -1,15 +1,13 @@
 //
 
-#include "classification_evaluator.h"
+#include "evaluation_metrics.h"
 #include "dataset_utils.h"
-#include "detection_evaluator.h"
 #include "detection_output.h"
 #include "detection_prediction_io.h"
 #include "report_output.h"
 #include "segmentation_output.h"
 #include "segmentation_prediction_io.h"
 #include "timing_io.h"
-#include "segmentation_evaluator.h"
 
 #include <exception>
 #include <filesystem>
