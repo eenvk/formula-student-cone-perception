@@ -76,17 +76,10 @@ def build_test_dataset():
     print()
     print("Test image/annotation pairs found:", len(pairs))
 
-    image_paths, image_shapes, y_true = prepare_test_data(
-        pairs
-    )
+    image_paths, image_shapes, y_true = prepare_test_data(pairs)
 
-    inference_ds = build_inference_dataset(
-        image_paths
-    )
-
-    inference_metadata = build_inference_metadata(
-        image_shapes
-    )
+    inference_ds = build_inference_dataset(image_paths)
+    inference_metadata = build_inference_metadata(image_shapes)
 
     print("Inference metadata:", len(inference_metadata))
 
@@ -226,11 +219,6 @@ def main():
         raw_predictions = run_inference(model, inference_ds)
     else:
         raw_predictions = load_raw_predictions()
-
-    model = create_model()
-    model.load_weights(str(CHECKPOINT_PATH))
-
-    raw_predictions = run_inference(model, inference_ds)
 
     predictions = postprocess_inference_dataset(raw_predictions, inference_metadata)
     detection_report, classification_report = evaluate_model(predictions, y_true, pairs)

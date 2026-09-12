@@ -19,10 +19,8 @@ from detection.detection_config import (
 )
 
 from detection.model_utils import create_model
+from detection.inference import postprocess_inference_dataset
 
-from detection.inference import (
-    postprocess_inference_dataset,
-)
 
 
 def draw_boxes(image, boxes):

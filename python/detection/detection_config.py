@@ -22,7 +22,7 @@ NUM_PARALLEL_CALLS = 2
 # ============================================================
 # Training hyperparameters
 LEARNING_RATE = 0.001
-EPOCHS = 35
+EPOCHS = 45
 GLOBAL_CLIPNORM = 10.0
 
 
@@ -46,7 +46,7 @@ PROJECT_DIR = DETECTION_DIR.parent.parent
 CHECKPOINT_PATH = PROJECT_DIR / "models" / "best_yolov8.weights.h5"
 DETECTIONS_PATH = DETECTION_DIR / "detections.png"
 
-RAW_PREDICTIONS_DIR = PROJECT_DIR / "evaluation" / "raw_detection_prediction"
+RAW_PREDICTIONS_DIR = PROJECT_DIR / "python" / "evaluation" / "raw_detection_prediction"
 
 # ============================================================
 # Inference batching
@@ -72,7 +72,7 @@ GLOBAL_NMS_IOU_THRESHOLD = 0.5
 # Containment threshold used for predictions of the same class.
 GLOBAL_CONTAINMENT_THRESHOLD = 0.8
 # Stricter containment threshold used for predictions of different classes.
-GLOBAL_CROSS_CONTAINMENT_THRESHOLD = 0.95
+GLOBAL_CROSS_CONTAINMENT_THRESHOLD = 0.90
 
 # ============================================================
 # Training crops
