@@ -34,6 +34,8 @@ def predict_segmentation(image_bgr: np.ndarray, boxes: Sequence[Box], model: tf.
 
     rng = random.Random(RANDOM_SEED)
 
+    #---preprocessing
+
     for box in boxes:
         x_min, y_min, x_max, y_max = create_crop_box(box, image_height, image_width, rng, training=False)
 
@@ -46,8 +48,22 @@ def predict_segmentation(image_bgr: np.ndarray, boxes: Sequence[Box], model: tf.
         model_inputs.append(image_crop)
         roi_metadata.append((box, x_min, y_min, x_max, y_max, letterbox_metadata))
 
-    predictions = model.predict(np.stack(model_inputs), verbose=0)
+    #---unet inference---
 
+    #predictions = model.predict(np.stack(model_inputs), verbose=0)
+
+    model_inputs = np.stack(model_inputs).astype(
+        np.float32,
+        copy=False
+    )
+
+    predictions = model(
+        model_inputs,
+        training=False
+    ).numpy()
+
+
+    #---postprocessing---
     score_mask = np.full((image_height, image_width), -1.0, dtype=np.float32)
 
     for prediction, metadata in zip(predictions, roi_metadata):

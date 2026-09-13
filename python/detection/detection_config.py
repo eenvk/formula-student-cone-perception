@@ -50,9 +50,6 @@ RAW_PREDICTIONS_DIR = PROJECT_DIR / "python" / "evaluation" / "raw_detection_pre
 
 # ============================================================
 # Inference batching
-# Number of images processed together during inference.
-IMAGE_CHUCK_SIZE = 8
-
 # Number of 800x800 views processed by the model in one batch.
 PATCH_BATCH_SIZE = 8
 

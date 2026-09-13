@@ -6,8 +6,11 @@ one ORIGINAL IMAGE / FRAME at a time.
 
 Important:
 - Frames are processed sequentially.
-- Inside one frame, YOLO still processes that frame's patch/full-image views
-  in batches of PATCH_BATCH_SIZE.
+- Inside one frame, YOLO processes that frame's patch/full-image views together.
+- The KerasCV prediction decoder/NMS is NOT used in the real-time pipeline.
+- Candidate boxes are decoded directly.
+- A confidence threshold is applied first, then only the strongest candidates are kept.
+- A lightweight class-aware NMS is finally applied ONLY to those prefiltered candidates.
 - YOLO views from different original images are NEVER mixed.
 - Ground-truth generation, evaluation, and visualization are measured
   separately and are NOT included in the real-time pipeline latency.
@@ -42,13 +45,12 @@ from detection.data_pipeline import (
 
 from detection.detection_config import (
     CHECKPOINT_PATH,
-    PATCH_BATCH_SIZE,
     SEED,
 )
 
 from detection.inference import postprocess_inference_dataset
 from detection.model_utils import configure_gpu, create_model
-from evaluation.evaluation_utils import SegmentationEvaluator, match_by_iou
+from evaluation.evaluation_utils import SegmentationEvaluator
 
 from segmentation.segmentation_config import (
     MASK_THRESHOLD,
@@ -86,73 +88,279 @@ UNET_REPEATS = 20
 UNET_ATOL = 1e-5
 UNET_RTOL = 1e-4
 
-RUN_YOLO_COMPARISON = True
-YOLO_DIAGNOSTIC_IMAGES = 3
+# YOLO inference without the expensive KerasCV prediction decoder.
+# Apply threshold first, then top-k, then a lightweight NMS only on the reduced set.
+YOLO_SCORE_THRESHOLD = 0.25
+YOLO_PRE_NMS_TOP_K = 100
+YOLO_NMS_IOU_THRESHOLD = 0.50
+YOLO_NMS_MAX_DETECTIONS = 100
 YOLO_WARMUP_RUNS = 3
-YOLO_REPEATS = 20
-YOLO_MATCH_IOU = 0.99
 
 
 def elapsed_ms(start_time):
     return (time.perf_counter() - start_time) * 1000.0
 
 
-def build_single_frame_detection_input(image_bgr):
-    """
-    Build YOLO input views for ONE original frame.
+def create_yolo_threshold_nms_inference(model):
+    """Create a reusable YOLO graph with threshold + top-k + lightweight NMS."""
+    import importlib
 
-    One frame may generate many 800x800 views (patches + full image).
-    These views are batched, but views from different frames are never mixed.
-    """
-    image_height, image_width = image_bgr.shape[:2]
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    implementation = importlib.import_module(type(model).__module__)
+    required = ("decode_regression_to_boxes", "get_anchors", "dist2bbox", "bounding_box", "ops")
 
-    views, _ = create_combined_views(image_rgb)
-
-    image_shapes = tf.constant(
-        [[image_height, image_width]],
-        dtype=tf.int32,
-    )
-
-    metadata = build_inference_metadata(image_shapes)
-
-    if len(views) != len(metadata):
-        raise ValueError(
-            f"Views/metadata mismatch: "
-            f"{len(views)} views, {len(metadata)} metadata elements."
+    if any(not hasattr(implementation, name) for name in required):
+        raise RuntimeError(
+            "Installed YOLO implementation lacks the decoder helpers expected by this script."
         )
 
-    inference_ds = (tf.data.Dataset.from_tensor_slices(views).batch(PATCH_BATCH_SIZE, drop_remainder=False).prefetch(1))
+    @tf.function(input_signature=[tf.TensorSpec((None, 800, 800, 3), tf.float32)])
+    def graph_predict(images):
+        raw_outputs = model(images, training=False)
 
-    return inference_ds, metadata, len(views)
+        distances = implementation.decode_regression_to_boxes(raw_outputs["boxes"])
+        anchors, strides = implementation.get_anchors(image_shape=images.shape[1:])
+        strides = implementation.ops.expand_dims(strides, axis=-1)
+        boxes = implementation.dist2bbox(distances, anchors) * strides
+
+        boxes_xyxy = implementation.bounding_box.convert_format(
+            boxes,
+            source="xyxy",
+            target="xyxy",
+            images=images,
+        )
+
+        class_scores = raw_outputs["classes"]
+        confidence = tf.reduce_max(class_scores, axis=-1)
+        classes = tf.argmax(class_scores, axis=-1, output_type=tf.int32)
+
+        # 1) Threshold BEFORE the NMS.
+        threshold_mask = confidence >= YOLO_SCORE_THRESHOLD
+        filtered_scores = tf.where(
+            threshold_mask,
+            confidence,
+            tf.fill(tf.shape(confidence), tf.constant(-1.0, dtype=confidence.dtype)),
+        )
+
+        # 2) Keep only the strongest candidates.
+        num_candidates = tf.shape(filtered_scores)[1]
+        k = tf.minimum(num_candidates, YOLO_PRE_NMS_TOP_K)
+
+        top_scores, top_indices = tf.math.top_k(
+            filtered_scores,
+            k=k,
+            sorted=True,
+        )
+
+        top_boxes = tf.gather(
+            boxes_xyxy,
+            top_indices,
+            batch_dims=1,
+        )
+
+        top_classes = tf.gather(
+            classes,
+            top_indices,
+            batch_dims=1,
+        )
+
+        # tf.image.non_max_suppression_padded expects y1,x1,y2,x2.
+        top_boxes_yxyx = tf.stack(
+            [
+                top_boxes[..., 1],
+                top_boxes[..., 0],
+                top_boxes[..., 3],
+                top_boxes[..., 2],
+            ],
+            axis=-1,
+        )
+
+        # Class-aware NMS: boxes from different classes are offset so that
+        # they cannot suppress one another.
+        max_coordinate = (
+            tf.reduce_max(
+                tf.abs(top_boxes_yxyx),
+                axis=[1, 2],
+                keepdims=True,
+            )
+            + 1.0
+        )
+
+        class_offsets = (
+            tf.cast(
+                top_classes,
+                top_boxes_yxyx.dtype,
+            )[..., None]
+            * max_coordinate
+        )
+
+        nms_boxes = top_boxes_yxyx + class_offsets
+
+        def nms_single(args):
+            boxes_one, scores_one = args
+
+            selected_indices, valid_count = tf.image.non_max_suppression_padded(
+                boxes=boxes_one,
+                scores=scores_one,
+                max_output_size=YOLO_NMS_MAX_DETECTIONS,
+                iou_threshold=YOLO_NMS_IOU_THRESHOLD,
+                score_threshold=YOLO_SCORE_THRESHOLD,
+                pad_to_max_output_size=True,
+            )
+
+            return selected_indices, valid_count
+
+        selected_indices, num_detections = tf.map_fn(
+            nms_single,
+            (nms_boxes, top_scores),
+            fn_output_signature=(
+                tf.TensorSpec(
+                    (YOLO_NMS_MAX_DETECTIONS,),
+                    tf.int32,
+                ),
+                tf.TensorSpec(
+                    (),
+                    tf.int32,
+                ),
+            ),
+        )
+
+        selected_boxes = tf.gather(
+            top_boxes,
+            selected_indices,
+            batch_dims=1,
+        )
+
+        selected_scores = tf.gather(
+            top_scores,
+            selected_indices,
+            batch_dims=1,
+        )
+
+        selected_classes = tf.gather(
+            top_classes,
+            selected_indices,
+            batch_dims=1,
+        )
+
+        valid_positions = tf.sequence_mask(
+            num_detections,
+            maxlen=YOLO_NMS_MAX_DETECTIONS,
+        )
+
+        selected_boxes = tf.where(
+            valid_positions[..., None],
+            selected_boxes,
+            tf.zeros_like(selected_boxes),
+        )
+
+        selected_scores = tf.where(
+            valid_positions,
+            selected_scores,
+            tf.zeros_like(selected_scores),
+        )
+
+        selected_classes = tf.where(
+            valid_positions,
+            selected_classes,
+            tf.zeros_like(selected_classes),
+        )
+
+        selected_boxes = implementation.bounding_box.convert_format(
+            selected_boxes,
+            source="xyxy",
+            target=model.bounding_box_format,
+            images=images,
+        )
+
+        return {
+            "boxes": selected_boxes,
+            "confidence": selected_scores,
+            "classes": selected_classes,
+            "num_detections": num_detections,
+        }
+
+    def infer(inputs):
+        tensor = tf.convert_to_tensor(
+            inputs,
+            dtype=tf.float32,
+        )
+
+        outputs = graph_predict(tensor)
+
+        return tf.nest.map_structure(
+            lambda x: x.numpy(),
+            outputs,
+        )
+
+    return infer, graph_predict
 
 
-def detect_single_frame(image_bgr, detector_model):
-    """Run the complete YOLO detection stage on one original frame."""
+def warmup_yolo(infer):
+    """Warm the reusable YOLO graph outside measured frame times."""
+    if YOLO_WARMUP_RUNS < 1:
+        raise ValueError("YOLO_WARMUP_RUNS must be positive.")
+
+    rng = np.random.default_rng(SEED)
+
+    inputs = rng.random(
+        (1, 800, 800, 3),
+        dtype=np.float32,
+    )
+
+    start = time.perf_counter()
+
+    print(
+        f"\nYOLO threshold + top-k + NMS graph warm-up: {YOLO_WARMUP_RUNS} call(s)",
+        flush=True,
+    )
+
+    for _ in range(YOLO_WARMUP_RUNS):
+        infer(inputs)
+
+    print(
+        f"YOLO graph warm-up time: {time.perf_counter() - start:.2f} s "
+        "(excluded from pipeline FPS)",
+        flush=True,
+    )
+
+
+def build_single_frame_detection_input(image_bgr):
+    """Build YOLO input views for one original frame as one host NumPy batch."""
+    image_height, image_width = image_bgr.shape[:2]
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    views, _ = create_combined_views(image_rgb)
+
+    image_shapes = tf.constant([[image_height, image_width]], dtype=tf.int32)
+    metadata = build_inference_metadata(image_shapes)
+    if len(views) != len(metadata):
+        raise ValueError(
+            f"Views/metadata mismatch: {len(views)} views, {len(metadata)} metadata elements."
+        )
+
+    inputs = np.ascontiguousarray(views, dtype=np.float32)
+    return inputs, metadata, len(views)
+
+
+def detect_single_frame(image_bgr, yolo_infer):
+    """Run YOLO on one frame with threshold + top-k + lightweight NMS."""
     timings = {}
 
     start = time.perf_counter()
-
-    inference_ds, metadata, num_views = build_single_frame_detection_input(image_bgr)
+    inputs, metadata, num_views = build_single_frame_detection_input(image_bgr)
     timings["detection_preprocess"] = elapsed_ms(start)
-    start = time.perf_counter()
 
-    raw_predictions = detector_model.predict(inference_ds,verbose=0,)
+    start = time.perf_counter()
+    raw_predictions = yolo_infer(inputs)
     timings["yolo_inference"] = elapsed_ms(start)
 
     start = time.perf_counter()
-
-    predictions = postprocess_inference_dataset(raw_predictions,metadata,)
-
+    predictions = postprocess_inference_dataset(raw_predictions, metadata)
     timings["detection_postprocess"] = elapsed_ms(start)
 
     if len(predictions) != 1:
-        raise ValueError(
-            f"Expected exactly one prediction group, got {len(predictions)}."
-        )
+        raise ValueError(f"Expected exactly one prediction group, got {len(predictions)}.")
 
     return predictions[0], timings, num_views
-
 
 def prepare_segmentation_inputs(image_bgr, boxes):
     """Shared crop preparation for the pipeline and isolated U-Net diagnostic."""
@@ -284,13 +492,13 @@ def predict_segmentation_profiled(image_bgr,boxes,unet_infer):
     return semantic_mask, timings
 
 
-def run_pipeline_on_frame(image_bgr,detector_model,unet_infer,):
+def run_pipeline_on_frame(image_bgr, yolo_infer, unet_infer):
     """
     Run the production-relevant pipeline on ONE frame.
     """
     pipeline_start = time.perf_counter()
 
-    predicted_boxes, detection_timings, num_views = detect_single_frame(image_bgr, detector_model)
+    predicted_boxes, detection_timings, num_views = detect_single_frame(image_bgr, yolo_infer)
     predicted_mask, segmentation_timings = predict_segmentation_profiled(image_bgr,predicted_boxes,unet_infer,)
 
     pipeline_total = elapsed_ms(pipeline_start)
@@ -406,277 +614,6 @@ def benchmark_unet_modes(segmentation_model, source_image_path, source_boxes):
         print(f"tf.function trace count: {graph_predict.experimental_get_tracing_count()}", flush=True)
 
 
-def report_yolo_agreement(reference, candidate, metadata, label):
-    """Compare decoded arrays and final boxes; matching tolerates output reordering."""
-    for key in ("boxes", "confidence", "classes", "num_detections"):
-        if key not in reference or key not in candidate:
-            continue
-        a, b = np.asarray(reference[key]), np.asarray(candidate[key])
-        if a.shape != b.shape:
-            print(f"  {label}/{key}: shape mismatch {a.shape} vs {b.shape}")
-            continue
-        if np.issubdtype(a.dtype, np.floating):
-            difference = float(np.max(np.abs(a - b))) if a.size else 0.0
-            print(f"  {label}/{key}: slot_allclose={np.allclose(a, b, atol=1e-5, rtol=1e-4)}, "
-                  f"max_abs_diff={difference:.8g}")
-        else:
-            print(f"  {label}/{key}: slot_equal={np.array_equal(a, b)}")
-
-    ref_groups = postprocess_inference_dataset(reference, metadata)
-    pred_groups = postprocess_inference_dataset(candidate, metadata)
-    if len(ref_groups) != len(pred_groups):
-        raise ValueError("YOLO comparison produced a different number of image groups.")
-    for ref, pred in zip(ref_groups, pred_groups):
-        matches, missing, extra = match_by_iou(ref, pred, YOLO_MATCH_IOU)
-        class_changes = sum(ref[i].class_id != pred[j].class_id for i, j in matches)
-        score_delta = max((abs(ref[i].score - pred[j].score) for i, j in matches), default=0.0)
-        print(f"  {label}/final: reference={len(ref)}, candidate={len(pred)}, "
-              f"matched@IoU{YOLO_MATCH_IOU}={len(matches)}, unmatched_ref={len(missing)}, "
-              f"unmatched_candidate={len(extra)}, class_changes={class_changes}, "
-              f"max_matched_score_diff={score_delta:.8g}")
-
-
-def create_yolo_decoder_parts(model, raw_spec, image_spec):
-    """Diagnostic only: reproduce A with the installed KerasCV helpers; reuse B.
-
-    A = raw box distributions -> xyxy coordinates (including anchors/strides).
-    B = the model's existing prediction_decoder (filtering and internal NMS).
-    No decoder settings or production-model methods are changed.
-    """
-    import importlib
-
-    implementation = importlib.import_module(type(model).__module__)
-    required = ("decode_regression_to_boxes", "get_anchors", "dist2bbox", "bounding_box", "ops")
-    if any(not hasattr(implementation, name) for name in required):
-        raise RuntimeError("Installed YOLO implementation lacks expected decoder helpers; "
-                           "inspect its decode_predictions before adapting this diagnostic.")
-
-    @tf.function(input_signature=[raw_spec, image_spec])
-    def convert_boxes(raw_outputs, images):
-        distances = implementation.decode_regression_to_boxes(raw_outputs["boxes"])
-        anchors, strides = implementation.get_anchors(image_shape=images.shape[1:])
-        strides = implementation.ops.expand_dims(strides, axis=-1)
-        boxes = implementation.dist2bbox(distances, anchors) * strides
-        return implementation.bounding_box.convert_format(
-            boxes, source="xyxy", target=model.bounding_box_format, images=images
-        )
-
-    box_spec = tf.TensorSpec((None, raw_spec["boxes"].shape[1], 4), raw_spec["boxes"].dtype)
-
-    @tf.function(input_signature=[box_spec, raw_spec["classes"]])
-    def select_boxes(boxes, scores):
-        return model.prediction_decoder(boxes, scores)
-
-    return convert_boxes, select_boxes
-
-
-def benchmark_yolo_stages(network_graph, decoder_graph, full_graph, inputs, metadata, convert_boxes, select_boxes):
-    """Separate network and decoder timing without changing production inference.
-
-    Network-only includes raw-output download. Decoder-only uses cached resident
-    raw tensors and downloads decoded outputs. These boundaries intentionally
-    differ from the fused full path: stage means must NOT be added together.
-    """
-    def host(outputs):
-        return tf.nest.map_structure(lambda x: x.numpy() if hasattr(x, "numpy") else np.asarray(x), outputs)
-
-    image_tensor = tf.convert_to_tensor(inputs, dtype=tf.float32)
-    raw_predictions = network_graph(image_tensor)
-    # Complete all cached-input preparation before decoder timing starts.
-    host(raw_predictions)
-    converted_boxes = convert_boxes(raw_predictions, image_tensor)
-    host(converted_boxes)
-    print("\nYOLO STAGE BREAKDOWN (isolated; excluded from pipeline FPS)")
-    print("network_only: host image -> host RAW predictions (includes raw download).")
-    print("decoder_only: cached resident RAW predictions -> host decoded detections.")
-    print("A_box_conversion: cached resident RAW predictions -> host box coordinates.")
-    print("B_internal_NMS: cached resident coordinates/scores -> host detections.")
-    print("B is KerasCV's prediction_decoder, NOT our final cross-view NMS.")
-    print("full_graph: host image -> host decoded detections (reference total).")
-    print("Do NOT sum stages: transfers and graph boundaries differ from full_graph.")
-    print("Tensor devices describe outputs, not placement of every internal operation.")
-    for key, value in raw_predictions.items():
-        print(f"  Raw {key}: shape={value.shape}; dtype={value.dtype.name}; device={value.device}")
-
-    modes = {
-        "network_only": lambda: host(network_graph(inputs)),
-        "decoder_only": lambda: host(decoder_graph(raw_predictions, image_tensor)),
-        "A_box_conversion": lambda: host(convert_boxes(raw_predictions, image_tensor)),
-        "B_internal_NMS": lambda: host(select_boxes(converted_boxes, raw_predictions["classes"])),
-        "full_graph": lambda: host(full_graph(inputs)),
-    }
-    rng = random.Random(SEED)
-    order = list(modes)
-    rng.shuffle(order)
-    print("First-use order: " + ", ".join(order), flush=True)
-    for name in order:
-        start = time.perf_counter()
-        modes[name]()
-        print(f"  {name}: first diagnostic call {elapsed_ms(start):.2f} ms "
-              "(shared caches, not cold start)", flush=True)
-    for _ in range(YOLO_WARMUP_RUNS):
-        rng.shuffle(order)
-        for name in order:
-            modes[name]()
-
-    samples = {name: [] for name in modes}
-    last_outputs = {}
-    for repeat in range(YOLO_REPEATS):
-        rng.shuffle(order)
-        for name in order:
-            start = time.perf_counter()
-            last_outputs[name] = modes[name]()
-            samples[name].append(elapsed_ms(start))
-        if (repeat + 1) % 5 == 0 or repeat + 1 == YOLO_REPEATS:
-            print(f"  Stage repeats: {repeat + 1}/{YOLO_REPEATS}", flush=True)
-    print(f"{'Stage':<30}{'Mean [ms]':>12}{'Median':>12}{'P95':>12}{'Std':>12}")
-    for name in modes:
-        print_statistics(name, samples[name])
-    report_yolo_agreement(last_outputs["full_graph"], last_outputs["decoder_only"],
-                          metadata, "cached_decoder_vs_full")
-    # Also check the separated network's last output after explicit decoding.
-    decoded_last = host(decoder_graph(
-        tf.nest.map_structure(tf.convert_to_tensor, last_outputs["network_only"]), image_tensor
-    ))
-    report_yolo_agreement(last_outputs["full_graph"], decoded_last,
-                          metadata, "separate_network_then_decoder_vs_full")
-    report_yolo_agreement(last_outputs["decoder_only"], last_outputs["B_internal_NMS"],
-                          metadata, "split_A_B_vs_original_decoder")
-    fresh_split = host(select_boxes(
-        tf.convert_to_tensor(last_outputs["A_box_conversion"]), raw_predictions["classes"]
-    ))
-    report_yolo_agreement(last_outputs["decoder_only"], fresh_split,
-                          metadata, "last_A_then_B_vs_original_decoder")
-    print(f"A/B trace counts: A={convert_boxes.experimental_get_tracing_count()}, "
-          f"B={select_boxes.experimental_get_tracing_count()}")
-    print(f"Stage trace counts: network={network_graph.experimental_get_tracing_count()}, "
-          f"decoder={decoder_graph.experimental_get_tracing_count()}", flush=True)
-
-
-def benchmark_yolo_modes(model, pairs):
-    """Compare complete YOLO inference including the installed decoder/NMS.
-
-    Preprocessing is performed once per image. Each mode consumes the same host
-    array and materializes all decoded outputs on the host before the timer stops.
-    This diagnostic never changes the main pipeline or the model decoder.
-    """
-    if YOLO_DIAGNOSTIC_IMAGES < 1 or YOLO_WARMUP_RUNS < 1 or YOLO_REPEATS < 1:
-        raise ValueError("YOLO diagnostic counts must be positive.")
-    if not pairs:
-        print("YOLO comparison skipped: no images.")
-        return
-
-    selected = np.linspace(0, len(pairs) - 1, min(YOLO_DIAGNOSTIC_IMAGES, len(pairs)), dtype=int)
-    graph_predict = None
-    graph_shape = None
-    network_graph = None
-    decoder_graph = None
-    rng = random.Random(SEED)
-
-    def to_host(outputs):
-        return tf.nest.map_structure(lambda x: x.numpy() if hasattr(x, "numpy") else np.asarray(x), outputs)
-
-    def direct_decoded(inputs):
-        tensor = tf.convert_to_tensor(inputs, dtype=tf.float32)
-        raw = model(tensor, training=False)
-        return model.decode_predictions(raw, tensor)
-
-    def dataset_predict(inputs):
-        # Include the per-call Dataset setup, as in the current frame pipeline.
-        dataset = tf.data.Dataset.from_tensor_slices(inputs).batch(PATCH_BATCH_SIZE).prefetch(1)
-        return model.predict(dataset, verbose=0)
-
-    print("\n" + "=" * 82)
-    print("ISOLATED YOLO COMPARISON (excluded from pipeline FPS)")
-    print("All modes include network + decode_predictions + decoder/NMS.")
-    print("Host float32 input -> host decoded outputs; image preprocessing excluded.")
-    print("predict_dataset also includes per-call Dataset creation/batch/prefetch.")
-    print("Final coordinate mapping/filtering is checked outside the timer.")
-    print("First use shares caches and is NOT an independent cold-start measurement.")
-    print(f"Images={len(selected)}; warm-up/mode/image={YOLO_WARMUP_RUNS}; repeats={YOLO_REPEATS}", flush=True)
-
-    for image_index in selected:
-        image_path, _ = pairs[int(image_index)]
-        image = load_image(image_path)
-        views, _ = create_combined_views(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        inputs = np.ascontiguousarray(views, dtype=np.float32)
-        metadata = build_inference_metadata(tf.constant([image.shape[:2]], dtype=tf.int32))
-        if len(inputs) != len(metadata):
-            raise ValueError("YOLO diagnostic views/metadata mismatch.")
-        if graph_predict is None:
-            graph_shape = tuple(inputs.shape[1:])
-            graph_predict = tf.function(direct_decoded, input_signature=[
-                tf.TensorSpec((None, *graph_shape), tf.float32)
-            ])
-        elif tuple(inputs.shape[1:]) != graph_shape:
-            raise ValueError("YOLO diagnostic expects a fixed view resolution.")
-
-        modes = {
-            "predict_dataset": dataset_predict,
-            "predict_numpy": lambda x: model.predict(x, batch_size=PATCH_BATCH_SIZE, verbose=0),
-            "direct_decoded": direct_decoded,
-            "tf.function_decoded": graph_predict,
-        }
-        print(f"\nImage: {image_path.name}; input={inputs.shape}; original={image.shape[:2]}", flush=True)
-        if len(inputs) > PATCH_BATCH_SIZE:
-            print("NOTE: predict splits the views; direct/graph use one batch.")
-        order = list(modes)
-        rng.shuffle(order)
-        print("First-use order: " + ", ".join(order), flush=True)
-        first_outputs = {}
-        for name in order:
-            start = time.perf_counter()
-            first_outputs[name] = to_host(modes[name](inputs))
-            print(f"  {name}: first use {elapsed_ms(start):.2f} ms", flush=True)
-        for _ in range(YOLO_WARMUP_RUNS):
-            rng.shuffle(order)
-            for name in order:
-                to_host(modes[name](inputs))
-
-        samples = {name: [] for name in modes}
-        last_outputs = {}
-        for repeat in range(YOLO_REPEATS):
-            rng.shuffle(order)
-            for name in order:
-                start = time.perf_counter()
-                last_outputs[name] = to_host(modes[name](inputs))
-                samples[name].append(elapsed_ms(start))
-            if (repeat + 1) % 5 == 0 or repeat + 1 == YOLO_REPEATS:
-                print(f"  Repeats: {repeat + 1}/{YOLO_REPEATS}", flush=True)
-        print(f"{'Mode':<30}{'Mean [ms]':>12}{'Median':>12}{'P95':>12}{'Std':>12}")
-        for name in modes:
-            print_statistics(name, samples[name])
-        print("Agreement vs predict_dataset (not ground truth; array slots may reorder):")
-        for phase, outputs in (("first", first_outputs), ("last", last_outputs)):
-            for name in modes:
-                if name != "predict_dataset":
-                    report_yolo_agreement(outputs["predict_dataset"], outputs[name], metadata,
-                                          f"{phase}/{name}")
-        print(f"YOLO tf.function trace count: {graph_predict.experimental_get_tracing_count()}", flush=True)
-
-        if network_graph is None:
-            image_spec = tf.TensorSpec((None, *graph_shape), tf.float32)
-
-            @tf.function(input_signature=[image_spec])
-            def network_graph(images):
-                return model(images, training=False)
-
-            example_raw = network_graph(tf.convert_to_tensor(inputs, dtype=tf.float32))
-            to_host(example_raw)
-            raw_spec = tf.nest.map_structure(
-                lambda x: tf.TensorSpec((None, *tuple(x.shape[1:])), x.dtype), example_raw
-            )
-
-            @tf.function(input_signature=[raw_spec, image_spec])
-            def decoder_graph(raw_outputs, images):
-                return model.decode_predictions(raw_outputs, images)
-
-            convert_boxes, select_boxes = create_yolo_decoder_parts(model, raw_spec, image_spec)
-
-        benchmark_yolo_stages(network_graph, decoder_graph, graph_predict, inputs, metadata,
-                              convert_boxes, select_boxes)
-
-
 
 def main():
     tf.keras.utils.set_random_seed(SEED)
@@ -702,6 +639,7 @@ def main():
 
     detector_model = create_model()
     detector_model.load_weights(str(CHECKPOINT_PATH))
+    yolo_infer, yolo_graph = create_yolo_threshold_nms_inference(detector_model)
 
     print("Loading U-Net segmentation model...")
 
@@ -723,6 +661,8 @@ def main():
         raise RuntimeError("No test images found.")
 
     print(f"\nTest images: {len(pairs)}")
+    warmup_yolo(yolo_infer)
+    print(f"Pipeline YOLO threshold/NMS trace count after warm-up: {yolo_graph.experimental_get_tracing_count()}")
     warmup_unet(unet_infer)
     print(f"Pipeline U-Net trace count after warm-up: {unet_graph.experimental_get_tracing_count()}")
 
@@ -738,7 +678,7 @@ def main():
     for warmup_index in range(WARMUP_RUNS):
         _, _, _, num_views = run_pipeline_on_frame(
             warmup_image,
-            detector_model,
+            yolo_infer,
             unet_infer,
         )
 
@@ -798,7 +738,7 @@ def main():
             num_views,
         ) = run_pipeline_on_frame(
             image_bgr,
-            detector_model,
+            yolo_infer,
             unet_infer,
         )
 
@@ -1046,13 +986,8 @@ def main():
     )
 
 
+    print(f"Pipeline YOLO threshold/NMS trace count after benchmark: {yolo_graph.experimental_get_tracing_count()}")
     print(f"Pipeline U-Net trace count after benchmark: {unet_graph.experimental_get_tracing_count()}")
-
-    if RUN_YOLO_COMPARISON:
-        diagnostic_start = time.perf_counter()
-        benchmark_yolo_modes(detector_model, pairs)
-        print(f"YOLO diagnostic wall time: {time.perf_counter() - diagnostic_start:.2f} s "
-              "(additional to benchmark wall time above)")
 
     if RUN_UNET_COMPARISON:
         diagnostic_start = time.perf_counter()
