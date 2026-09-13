@@ -24,6 +24,7 @@ add_executable(main
         src/report_output.cpp
         src/segmentation_prediction_io.cpp
         src/evaluation_metrics.cpp
+        src/inference_runner.cpp
 )
 
 target_link_libraries(main ${OpenCV_LIBS} ZLIB::ZLIB)

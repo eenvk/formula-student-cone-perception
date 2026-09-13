@@ -59,8 +59,7 @@ def configure_gpu():
                 pass
     else:
         print(
-            "\nATTENTION: TensorFlow does not detect a GPU. "
-            "Training will run on CPU and will be much slower.\n"
+            "\nATTENTION: TensorFlow does not detect a GPU. \n"
         )
 
 

@@ -1,4 +1,4 @@
-//Novkovic
+// Novkovic
 
 #ifndef SEGMENTATION_OUTPUT_H
 #define SEGMENTATION_OUTPUT_H
