@@ -1,4 +1,4 @@
-// Author: Renzi
+//Renzi
 
 #ifndef BOX_H
 #define BOX_H

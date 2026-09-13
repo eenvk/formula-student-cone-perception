@@ -3,9 +3,7 @@
 #ifndef REPORT_OUTPUT_H
 #define REPORT_OUTPUT_H
 
-#include "classification_evaluator.h"
-#include "detection_evaluator.h"
-#include "segmentation_evaluator.h"
+#include "evaluation_metrics.h"
 
 #include <cstddef>
 #include <filesystem>
