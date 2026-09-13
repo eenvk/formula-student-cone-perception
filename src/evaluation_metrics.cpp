@@ -22,6 +22,24 @@ namespace {
         std::vector<int> unmatched_pred;
     };
 
+    struct Candidate {
+        double iou;
+        int gt_index;
+        int pred_index;
+    };
+
+    bool compare_candidates(const Candidate& first, const Candidate& second) {
+        if (first.iou != second.iou) {
+            return first.iou > second.iou;
+        }
+
+        if (first.gt_index != second.gt_index) {
+            return first.gt_index < second.gt_index;
+        }
+
+        return first.pred_index < second.pred_index;
+    }
+
     int box_area(const Box& box) {
         return std::max(0, box.x_max - box.x_min) * std::max(0, box.y_max - box.y_min);
     }
@@ -47,12 +65,6 @@ namespace {
             throw std::invalid_argument("iou_threshold must be in the range [0, 1].");
         }
 
-        struct Candidate {
-            double iou;
-            int gt_index;
-            int pred_index;
-        };
-
         std::vector<Candidate> candidates;
 
         for (std::size_t gt_index = 0; gt_index < gt_boxes.size(); ++gt_index) {
@@ -64,18 +76,6 @@ namespace {
                 }
             }
         }
-
-        const auto compare_candidates = [](const Candidate& first, const Candidate& second) {
-            if (first.iou != second.iou) {
-                return first.iou > second.iou;
-            }
-
-            if (first.gt_index != second.gt_index) {
-                return first.gt_index < second.gt_index;
-            }
-
-            return first.pred_index < second.pred_index;
-        };
 
         std::sort(candidates.begin(), candidates.end(), compare_candidates);
 
@@ -277,10 +277,7 @@ const std::vector<std::vector<long long>>& SegmentationEvaluator::confusion_matr
     return confusion_matrix_;
 }
 
-ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : ClassificationEvaluator(default_cone_class_ids(), iou_threshold) {
-}
-
-ClassificationEvaluator::ClassificationEvaluator(const std::vector<int>& class_ids, double iou_threshold) : class_ids_(class_ids), iou_threshold_(iou_threshold) {
+ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : class_ids_(default_cone_class_ids()), iou_threshold_(iou_threshold) {
     if (iou_threshold_ < 0.0 || iou_threshold_ > 1.0) {
         throw std::invalid_argument("iou_threshold must be in the range [0, 1].");
     }
@@ -387,10 +384,7 @@ ClassificationReport ClassificationEvaluator::report() const {
     return result;
 }
 
-DetectionEvaluator::DetectionEvaluator() : DetectionEvaluator(default_cone_class_ids()) {
-}
-
-DetectionEvaluator::DetectionEvaluator(const std::vector<int>& class_ids) : class_ids_(class_ids) {
+DetectionEvaluator::DetectionEvaluator() : class_ids_(default_cone_class_ids()) {
     reset();
 }
 

@@ -55,7 +55,6 @@ private:
 class ClassificationEvaluator {
 public:
     explicit ClassificationEvaluator(double iou_threshold = 0.5);
-    ClassificationEvaluator(const std::vector<int>& class_ids, double iou_threshold = 0.5);
 
     void reset();
     void update(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes);
@@ -74,7 +73,6 @@ private:
 class DetectionEvaluator {
 public:
     DetectionEvaluator();
-    explicit DetectionEvaluator(const std::vector<int>& class_ids);
 
     void reset();
     void update(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes);

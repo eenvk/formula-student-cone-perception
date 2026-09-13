@@ -9,18 +9,14 @@
 #include <stdexcept>
 #include <string>
 
-namespace {
-
-    std::string format_value(double value) {
-        if (std::isnan(value)) {
-            return "nan";
-        }
-
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(6) << value;
-        return stream.str();
+static std::string format_value(double value) {
+    if (std::isnan(value)) {
+        return "nan";
     }
 
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(6) << value;
+    return stream.str();
 }
 
 void save_metrics_report(const SegmentationReport& segmentation_report, const ClassificationReport& classification_report, const DetectionReport& detection_report, const std::optional<double>& fps, const std::filesystem::path& output_path) {
