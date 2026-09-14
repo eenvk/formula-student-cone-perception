@@ -12,7 +12,7 @@ from matplotlib.patches import Rectangle
 
 from detection.detection_config import (
     PROJECT_DIR,
-    CHECKPOINT_PATH,
+    DETECTION_WEIGHTS_PATH,
     EPOCHS,
     EVAL_EVERY,
     SEED,
@@ -169,7 +169,7 @@ def main():
     callbacks = [
         InferenceValidation(
             val_inference_ds,
-            CHECKPOINT_PATH,
+            DETECTION_WEIGHTS_PATH,
             val_inference_metadata,
             inference_y_true,
             eval_every=EVAL_EVERY,

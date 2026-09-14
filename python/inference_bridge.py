@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow as tf
 
 from dataset.dataset_utils import PROJECT_ROOT, load_image
-from detection.detection_config import CHECKPOINT_PATH, SEED
+from detection.detection_config import DETECTION_WEIGHTS_PATH, SEED
 from detection.model_utils import configure_gpu, create_model
 from evaluation.evaluate_time import create_unet_inference, create_yolo_threshold_nms_inference, run_pipeline_on_frame, warmup_unet, warmup_yolo
 from segmentation.segmentation_model import build_unet
@@ -60,15 +60,15 @@ def prepare_output_directory(output_dir):
 
 def load_models():
     """Build YOLO and U-Net and load their trained weights."""
-    if not CHECKPOINT_PATH.is_file():
-        raise FileNotFoundError(f"YOLO weights not found: {CHECKPOINT_PATH}")
+    if not DETECTION_WEIGHTS_PATH.is_file():
+        raise FileNotFoundError(f"YOLO weights not found: {DETECTION_WEIGHTS_PATH}")
 
     if not SEGMENTATION_WEIGHTS_PATH.is_file():
         raise FileNotFoundError(f"U-Net weights not found: {SEGMENTATION_WEIGHTS_PATH}")
 
     print("Loading YOLO model...")
     detector_model = create_model()
-    detector_model.load_weights(str(CHECKPOINT_PATH))
+    detector_model.load_weights(str(DETECTION_WEIGHTS_PATH))
 
     print("Loading U-Net model...")
     segmentation_model = build_unet()

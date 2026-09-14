@@ -9,6 +9,10 @@ __pycache__/
 patch_inference/
 predicted_images/
 inference_No_nms/
+results/
+cpp_predictions/
+metrics_report.txt
+per_image_metrics.csv
 
 # C extensions
 *.so

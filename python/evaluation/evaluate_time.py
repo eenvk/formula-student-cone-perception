@@ -44,7 +44,7 @@ from detection.data_pipeline import (
 )
 
 from detection.detection_config import (
-    CHECKPOINT_PATH,
+    DETECTION_WEIGHTS_PATH,
     SEED,
 )
 
@@ -624,9 +624,9 @@ def main():
             f"Segmentation weights not found: {SEGMENTATION_WEIGHTS_PATH}"
         )
 
-    if not CHECKPOINT_PATH.is_file():
+    if not DETECTION_WEIGHTS_PATH.is_file():
         raise FileNotFoundError(
-            f"Detection weights not found: {CHECKPOINT_PATH}"
+            f"Detection weights not found: {DETECTION_WEIGHTS_PATH}"
         )
 
     if SAVE_VISUALIZATIONS:
@@ -638,7 +638,7 @@ def main():
     print("\nLoading YOLO detector...")
 
     detector_model = create_model()
-    detector_model.load_weights(str(CHECKPOINT_PATH))
+    detector_model.load_weights(str(DETECTION_WEIGHTS_PATH))
     yolo_infer, yolo_graph = create_yolo_threshold_nms_inference(detector_model)
 
     print("Loading U-Net segmentation model...")

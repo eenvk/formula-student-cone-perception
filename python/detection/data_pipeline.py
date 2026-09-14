@@ -439,6 +439,22 @@ def load_train_dataset(image_path, classes, bbox):
     else:
         return negative_crop(image_path, classes, bbox)
 
+def augment_sample(images, bounding_boxes):
+    """
+    Applies random data augmentation without increasing dataset size.
+    """
+    if tf.random.uniform(()) < 0.5:
+        images = tf.image.random_brightness(images, max_delta=25)
+
+    if tf.random.uniform(()) < 0.5:
+        images = tf.image.random_contrast(images, lower=0.9, upper=1.1)
+
+    if tf.random.uniform(()) < 0.5:
+        images = tf.image.random_saturation(images, lower=0.9, upper=1.1)
+
+    images = tf.clip_by_value(images, 0.0, 255.0)
+
+    return images, bounding_boxes
 
 def build_train_dataset(train_data, num_train):
     """
@@ -461,20 +477,11 @@ def build_train_dataset(train_data, num_train):
     )
 
     #load full_image or crop_image
-    train_ds = train_data.map(
-        load_train_dataset,
-        num_parallel_calls=NUM_PARALLEL_CALLS,
-        deterministic=False,
-    )
-
-
+    train_ds = train_data.map(load_train_dataset,num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=True)
     # we fix the image in 800x800
     # NOTe: crop image are already 800x800, while the full_image are not
-    train_ds = train_ds.map(
-        resize_sample,
-        num_parallel_calls=NUM_PARALLEL_CALLS,
-        deterministic=False,
-    )
+    train_ds = train_ds.map(resize_sample, num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=True)
+    train_ds = train_ds.map(augment_sample, num_parallel_calls=NUM_PARALLEL_CALLS, deterministic=True)
 
     # group elems in batch
     # drop_remainder=True: discard the last elems if they do not fill a complete batch
