@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 
+// Formats metric values consistently and preserves NaN values.
 static std::string format_value(double value) {
     if (std::isnan(value)) {
         return "nan";
@@ -19,6 +20,7 @@ static std::string format_value(double value) {
     return stream.str();
 }
 
+// Saves the aggregate segmentation, classification, detection and timing metrics.
 void save_metrics_report(const SegmentationReport& segmentation_report, const ClassificationReport& classification_report, const DetectionReport& detection_report, const std::optional<double>& fps, const std::filesystem::path& output_path) {
     std::filesystem::create_directories(output_path.parent_path());
 
@@ -63,6 +65,7 @@ void save_metrics_report(const SegmentationReport& segmentation_report, const Cl
     }
 }
 
+// Saves one CSV row for each evaluated image.
 void save_per_image_metrics(const std::vector<ImageMetrics>& metrics, const std::filesystem::path& output_path) {
     std::filesystem::create_directories(output_path.parent_path());
 

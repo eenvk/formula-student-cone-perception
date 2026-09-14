@@ -28,6 +28,7 @@ namespace {
         int pred_index;
     };
 
+    // Orders candidate matches by IoU and then by stable box indices.
     bool compare_candidates(const Candidate& first, const Candidate& second) {
         if (first.iou != second.iou) {
             return first.iou > second.iou;
@@ -40,10 +41,12 @@ namespace {
         return first.pred_index < second.pred_index;
     }
 
+    // Computes the area of a bounding box while protecting against invalid extents.
     int box_area(const Box& box) {
         return std::max(0, box.x_max - box.x_min) * std::max(0, box.y_max - box.y_min);
     }
 
+    // Computes the intersection-over-union of two bounding boxes.
     double box_iou(const Box& box_a, const Box& box_b) {
         const int x_min = std::max(box_a.x_min, box_b.x_min);
         const int y_min = std::max(box_a.y_min, box_b.y_min);
@@ -60,6 +63,7 @@ namespace {
         return static_cast<double>(intersection) / static_cast<double>(union_area);
     }
 
+    // Greedily matches predictions to ground truth using the highest IoU first.
     MatchingResult match_by_iou(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes, double iou_threshold) {
         if (iou_threshold < 0.0 || iou_threshold > 1.0) {
             throw std::invalid_argument("iou_threshold must be in the range [0, 1].");
@@ -110,6 +114,7 @@ namespace {
         return result;
     }
 
+    // Computes the mean while leaving empty inputs as NaN.
     double average_values(const std::vector<double>& values) {
         if (values.empty()) {
             return std::numeric_limits<double>::quiet_NaN();
@@ -120,14 +125,17 @@ namespace {
         return sum / static_cast<double>(values.size());
     }
 
+    // Returns the cone classes included in all macro-averaged metrics.
     std::vector<int> default_cone_class_ids() {
         return std::vector<int>(CONE_CLASS_IDS.begin(), CONE_CLASS_IDS.end());
     }
 
+    // Checks whether a class belongs to the requested evaluation subset.
     bool contains_class_id(const std::vector<int>& class_ids, int class_id) {
         return std::find(class_ids.begin(), class_ids.end(), class_id) != class_ids.end();
     }
 
+    // Integrates the precision-recall curve using the precision envelope.
     double average_precision(const std::vector<double>& recall, const std::vector<double>& precision) {
         if (recall.size() != precision.size()) {
             throw std::invalid_argument("recall and precision must have the same size.");
@@ -163,6 +171,7 @@ namespace {
 
 }
 
+// Initializes the segmentation confusion matrix.
 SegmentationEvaluator::SegmentationEvaluator(int num_classes, int ignore_id) : num_classes_(num_classes), ignore_id_(ignore_id) {
     if (num_classes_ <= 0) {
         throw std::invalid_argument("num_classes must be positive.");
@@ -171,10 +180,12 @@ SegmentationEvaluator::SegmentationEvaluator(int num_classes, int ignore_id) : n
     reset();
 }
 
+// Clears all accumulated segmentation counts.
 void SegmentationEvaluator::reset() {
     confusion_matrix_.assign(static_cast<std::size_t>(num_classes_), std::vector<long long>(static_cast<std::size_t>(num_classes_), 0));
 }
 
+// Updates the confusion matrix with one ground-truth/prediction mask pair.
 void SegmentationEvaluator::update(const cv::Mat& gt_mask, const cv::Mat& pred_mask) {
     if (gt_mask.empty() || pred_mask.empty() || gt_mask.dims != 2 || pred_mask.dims != 2 || gt_mask.channels() != 1 || pred_mask.channels() != 1) {
         throw std::invalid_argument("gt_mask and pred_mask must be non-empty 2D single-channel images.");
@@ -212,6 +223,7 @@ void SegmentationEvaluator::update(const cv::Mat& gt_mask, const cv::Mat& pred_m
     }
 }
 
+// Computes IoU independently for every class.
 std::map<int, double> SegmentationEvaluator::per_class_iou() const {
     std::map<int, double> result;
 
@@ -240,10 +252,12 @@ std::map<int, double> SegmentationEvaluator::per_class_iou() const {
     return result;
 }
 
+// Computes mean IoU across all valid classes.
 double SegmentationEvaluator::mean_iou() const {
     return mean_iou(default_cone_class_ids());
 }
 
+// Computes mean IoU over the requested subset of classes.
 double SegmentationEvaluator::mean_iou(const std::vector<int>& class_ids) const {
     const std::map<int, double> iou_per_class = per_class_iou();
     std::vector<double> values;
@@ -259,6 +273,7 @@ double SegmentationEvaluator::mean_iou(const std::vector<int>& class_ids) const 
     return average_values(values);
 }
 
+// Converts numeric class IDs into a report with readable names.
 SegmentationReport SegmentationEvaluator::report() const {
     const std::map<int, double> iou_per_class = per_class_iou();
 
@@ -277,6 +292,7 @@ const std::vector<std::vector<long long>>& SegmentationEvaluator::confusion_matr
     return confusion_matrix_;
 }
 
+// Initializes counters used for macro-averaged classification metrics.
 ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : class_ids_(default_cone_class_ids()), iou_threshold_(iou_threshold) {
     if (iou_threshold_ < 0.0 || iou_threshold_ > 1.0) {
         throw std::invalid_argument("iou_threshold must be in the range [0, 1].");
@@ -285,6 +301,7 @@ ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : class_i
     reset();
 }
 
+// Clears TP, FP and FN counters for every cone class.
 void ClassificationEvaluator::reset() {
     true_positive_.clear();
     false_positive_.clear();
@@ -297,6 +314,7 @@ void ClassificationEvaluator::reset() {
     }
 }
 
+// Matches boxes by IoU and updates class-wise TP, FP and FN counts.
 void ClassificationEvaluator::update(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes) {
     const MatchingResult matching = match_by_iou(gt_boxes, pred_boxes, iou_threshold_);
 
@@ -336,6 +354,7 @@ void ClassificationEvaluator::update(const std::vector<Box>& gt_boxes, const std
     }
 }
 
+// Computes precision, recall and F1 for each cone class.
 std::map<int, ClassMetrics> ClassificationEvaluator::per_class_f1() const {
     std::map<int, ClassMetrics> result;
 
@@ -354,6 +373,7 @@ std::map<int, ClassMetrics> ClassificationEvaluator::per_class_f1() const {
     return result;
 }
 
+// Computes the unweighted mean of the valid class F1 scores.
 double ClassificationEvaluator::macro_f1() const {
     const std::map<int, ClassMetrics> metrics_per_class = per_class_f1();
     std::vector<double> values;
@@ -366,6 +386,7 @@ double ClassificationEvaluator::macro_f1() const {
     return average_values(values);
 }
 
+// Builds the classification report using readable class names.
 ClassificationReport ClassificationEvaluator::report() const {
     const std::map<int, ClassMetrics> metrics_per_class = per_class_f1();
 
@@ -384,15 +405,18 @@ ClassificationReport ClassificationEvaluator::report() const {
     return result;
 }
 
+// Initializes the set of cone classes evaluated for detection.
 DetectionEvaluator::DetectionEvaluator() : class_ids_(default_cone_class_ids()) {
     reset();
 }
 
+// Removes all stored detections and ground-truth boxes.
 void DetectionEvaluator::reset() {
     gt_by_image_.clear();
     pred_by_image_.clear();
 }
 
+// Stores one image worth of ground truth and predictions.
 void DetectionEvaluator::update(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes) {
     for (const Box& box : gt_boxes) {
         if (box.score.has_value()) {
@@ -410,6 +434,7 @@ void DetectionEvaluator::update(const std::vector<Box>& gt_boxes, const std::vec
     pred_by_image_.push_back(pred_boxes);
 }
 
+// Computes AP for one class at a specific IoU threshold.
 double DetectionEvaluator::average_precision_for_class(int class_id, double iou_threshold) const {
     std::vector<std::vector<Box>> gt_per_image;
 
@@ -529,6 +554,7 @@ double DetectionEvaluator::average_precision_for_class(int class_id, double iou_
     return average_precision(recall, precision);
 }
 
+// Averages AP over IoU thresholds from 0.50 to 0.95 for each class.
 std::map<int, double> DetectionEvaluator::per_class_ap() const {
     static const std::array<double, 10> iou_thresholds = {0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95};
 
@@ -551,6 +577,7 @@ std::map<int, double> DetectionEvaluator::per_class_ap() const {
     return result;
 }
 
+// Computes the unweighted mean AP across cone classes.
 double DetectionEvaluator::mean_average_precision() const {
     const std::map<int, double> ap_per_class = per_class_ap();
     std::vector<double> finite_values;
@@ -566,6 +593,7 @@ double DetectionEvaluator::mean_average_precision() const {
     return average_values(finite_values);
 }
 
+// Builds the final detection report with readable class names.
 DetectionReport DetectionEvaluator::report() const {
     const std::map<int, double> ap_per_class = per_class_ap();
 

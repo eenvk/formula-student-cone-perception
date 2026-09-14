@@ -22,24 +22,28 @@
 
 namespace {
 
+// Checks that image dimensions can be safely used to allocate masks.
 void validate_image_size(int image_height, int image_width) {
     if (image_height <= 0 || image_width <= 0) {
         throw std::invalid_argument("Image dimensions must be positive.");
     }
 }
 
+// Validates the basic format expected for semantic masks.
 void validate_mask(const cv::Mat& mask) {
     if (mask.empty() || mask.dims != 2 || mask.channels() != 1) {
         throw std::invalid_argument("Mask must be a non-empty single-channel image.");
     }
 }
 
+// Returns true for the image formats accepted by the dataset loader.
 bool is_supported_image(const std::filesystem::path& path) {
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
     return extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".bmp";
 }
 
+// Converts FSOCO class labels into the internal numeric identifiers.
 int class_name_to_id(const std::string& class_name) {
     static const std::unordered_map<std::string, int> class_ids = {
         {"yellow_cone", YELLOW_CONE_ID},
@@ -70,6 +74,7 @@ int class_name_to_id(const std::string& class_name) {
     return iterator->second;
 }
 
+    // Replaces JSON null values outside strings so OpenCV FileStorage can parse the file.
     std::string replace_json_nulls(const std::string& json_text) {
         std::string result;
         bool inside_string = false;
@@ -109,6 +114,7 @@ int class_name_to_id(const std::string& class_name) {
     }
 
 
+    // Reads and parses a JSON annotation from disk.
     cv::FileStorage open_annotation(const std::filesystem::path& annotation_path) {
         if (!std::filesystem::is_regular_file(annotation_path)) {
             throw std::runtime_error("Annotation file not found: " + annotation_path.string());
@@ -134,6 +140,7 @@ int class_name_to_id(const std::string& class_name) {
         return annotation;
     }
 
+// Decodes the base64 payload used by bitmap annotations.
 std::vector<unsigned char> decode_base64(const std::string& input) {
     static const std::string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::array<int, 256> lookup;
@@ -168,6 +175,7 @@ std::vector<unsigned char> decode_base64(const std::string& input) {
     return output;
 }
 
+// Decompresses the zlib-compressed bitmap payload.
 std::vector<unsigned char> decompress_zlib(const std::vector<unsigned char>& compressed_data) {
     z_stream stream{};
     stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef*>(compressed_data.data()));
@@ -199,6 +207,7 @@ std::vector<unsigned char> decompress_zlib(const std::vector<unsigned char>& com
     return output;
 }
 
+// Decodes a bitmap annotation into an OpenCV mask.
 cv::Mat decode_bitmap(const std::string& bitmap_data) {
     const std::vector<unsigned char> compressed_data = decode_base64(bitmap_data);
     const std::vector<unsigned char> image_data = decompress_zlib(compressed_data);
@@ -230,6 +239,7 @@ cv::Mat decode_bitmap(const std::string& bitmap_data) {
     return binary_mask;
 }
 
+// Places an object-local bitmap into a full-size image mask.
 cv::Mat object_to_full_mask(const cv::FileNode& object, int image_height, int image_width) {
     const cv::FileNode bitmap = object["bitmap"];
     const cv::FileNode origin = bitmap["origin"];
@@ -260,6 +270,7 @@ cv::Mat object_to_full_mask(const cv::FileNode& object, int image_height, int im
     return full_mask;
 }
 
+// Extracts the tight bounding box of the non-zero mask pixels.
 std::optional<std::array<int, 4>> mask_to_bbox(const cv::Mat& mask) {
     std::vector<cv::Point> points;
     cv::findNonZero(mask, points);
@@ -272,6 +283,7 @@ std::optional<std::array<int, 4>> mask_to_bbox(const cv::Mat& mask) {
     return std::array<int, 4>{rectangle.x, rectangle.y, rectangle.x + rectangle.width, rectangle.y + rectangle.height};
 }
 
+// Converts class IDs into BGR colors for visualization.
 cv::Mat colorize_mask(const cv::Mat& mask) {
     validate_mask(mask);
     cv::Mat color_mask(mask.rows, mask.cols, CV_8UC3);
@@ -289,10 +301,12 @@ cv::Mat colorize_mask(const cv::Mat& mask) {
 
 }
 
+// Checks whether an identifier belongs to one of the cone classes.
 bool is_cone_class_id(int class_id) {
     return class_id >= YELLOW_CONE_ID && class_id <= BIG_ORANGE_CONE_ID;
 }
 
+// Converts an internal class ID into a readable class name.
 std::string class_id_to_name(int class_id) {
     switch (class_id) {
         case BACKGROUND_ID:
@@ -312,6 +326,7 @@ std::string class_id_to_name(int class_id) {
     }
 }
 
+// Returns the BGR color associated with a class.
 cv::Scalar class_color_bgr(int class_id) {
     switch (class_id) {
         case BACKGROUND_ID:
@@ -331,6 +346,7 @@ cv::Scalar class_color_bgr(int class_id) {
     }
 }
 
+// Loads a color image and validates that decoding succeeded.
 cv::Mat load_image(const std::filesystem::path& image_path) {
     if (!std::filesystem::is_regular_file(image_path)) {
         throw std::runtime_error("Image file not found: " + image_path.string());
@@ -345,6 +361,7 @@ cv::Mat load_image(const std::filesystem::path& image_path) {
     return image;
 }
 
+// Matches test images and annotations by filename stem.
 std::vector<DatasetPair> find_test_pairs(const std::filesystem::path& image_dir, const std::filesystem::path& annotation_dir) {
     if (!std::filesystem::is_directory(image_dir) || !std::filesystem::is_directory(annotation_dir)) {
         throw std::runtime_error("Test image or annotation directory not found.");
@@ -386,6 +403,7 @@ std::vector<DatasetPair> find_test_pairs(const std::filesystem::path& image_dir,
     return pairs;
 }
 
+// Builds the semantic mask and bounding boxes from one FSOCO annotation.
 GroundTruth load_ground_truth(const std::filesystem::path& annotation_path, int image_height, int image_width) {
     validate_image_size(image_height, image_width);
 
@@ -431,6 +449,7 @@ GroundTruth load_ground_truth(const std::filesystem::path& annotation_path, int 
     return ground_truth;
 }
 
+// Blends the colored semantic mask with the original image.
 cv::Mat create_overlay(const cv::Mat& image_bgr, const cv::Mat& mask, double alpha) {
     if (image_bgr.empty() || image_bgr.channels() != 3) {
         throw std::invalid_argument("Image must be a non-empty three-channel image.");

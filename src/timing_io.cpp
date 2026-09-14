@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 
+// Validates the timing CSV and returns the reported inference FPS.
 double load_fps(const std::filesystem::path& csv_path) {
     std::ifstream file(csv_path);
 

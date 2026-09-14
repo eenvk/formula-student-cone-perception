@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+// Metrics collected for a single test image.
 struct ImageMetrics {
     std::string image_name;
     double mean_iou;
@@ -20,6 +21,7 @@ struct ImageMetrics {
     std::size_t predicted_boxes;
 };
 
+// Writes aggregate metrics and per-image results to disk.
 void save_metrics_report(const SegmentationReport& segmentation_report, const ClassificationReport& classification_report, const DetectionReport& detection_report, const std::optional<double>& fps, const std::filesystem::path& output_path);
 void save_per_image_metrics(const std::vector<ImageMetrics>& metrics, const std::filesystem::path& output_path);
 

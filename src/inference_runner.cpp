@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 
+// Builds the platform-specific command and executes the Python inference bridge.
 void run_python_inference(const std::filesystem::path& image_dir, const std::filesystem::path& output_dir) {
     const std::filesystem::path project_root = PROJECT_ROOT;
     const std::filesystem::path inference_script = project_root / "python" / "inference_bridge.py";
