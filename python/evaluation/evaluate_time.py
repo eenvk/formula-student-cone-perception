@@ -254,7 +254,7 @@ def build_single_frame_detection_input(image_bgr):
     """Build YOLO input views for one original frame as one host NumPy batch."""
     image_height, image_width = image_bgr.shape[:2]
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    views, _ = create_combined_views(image_rgb)
+    views = create_combined_views(image_rgb)
 
     image_shapes = tf.constant([[image_height, image_width]], dtype=tf.int32)
     metadata = build_inference_metadata(image_shapes)
