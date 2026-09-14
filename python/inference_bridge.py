@@ -1,4 +1,4 @@
-#
+#Novkovic
 
 """Run the optimized frame-by-frame YOLO + U-Net inference pipeline and export predictions for the C++ application."""
 
@@ -13,9 +13,8 @@ import tensorflow as tf
 from dataset.dataset_utils import PROJECT_ROOT, load_image
 from detection.detection_config import DETECTION_WEIGHTS_PATH, SEED
 from detection.model_utils import configure_gpu, create_model
-from evaluation.evaluate_time import create_unet_inference, create_yolo_threshold_nms_inference, run_pipeline_on_frame, warmup_unet, warmup_yolo
+from evaluation.evaluate_time import create_unet_inference, create_yolo_inference, run_pipeline_on_frame, warmup_pipeline
 from segmentation.segmentation_model import build_unet
-
 
 SEGMENTATION_WEIGHTS_PATH = PROJECT_ROOT / "models" / "unet_best.weights.h5"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "evaluation" / "cpp_predictions"
@@ -167,14 +166,14 @@ def main():
 
     detector_model, segmentation_model = load_models()
 
-    yolo_infer, _ = create_yolo_threshold_nms_inference(detector_model)
-    unet_infer, _ = create_unet_inference(segmentation_model)
+    yolo_infer = create_yolo_inference(detector_model)
+    unet_infer = create_unet_inference(segmentation_model)
 
     print()
-    print("Warming up optimized inference graphs...")
+    print("Warming up inference pipeline...")
 
-    warmup_yolo(yolo_infer)
-    warmup_unet(unet_infer)
+    warmup_image = load_image(image_paths[0])
+    warmup_pipeline(warmup_image, yolo_infer, unet_infer)
 
     print()
     print("Running optimized frame-by-frame inference...")

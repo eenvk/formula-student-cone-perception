@@ -1,4 +1,4 @@
-#granati
+#Granati
 
 import tensorflow as tf
 import keras_cv
@@ -110,7 +110,7 @@ def build_train_val_datasets():
     inference_y_true = {
         "boxes": selected_val_bboxes,
         "classes": selected_val_classes
-        }
+    }
 
     return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, inference_y_true
 
@@ -326,7 +326,7 @@ def positive_crop(image_path, classes, bbox):
         tf.logical_and(can_crop, n_valid > 0),
         make_positive_crop,
         fallback
-        )
+    )
 
 def clip_boxes_and_compute_retained_area(bbox, crop_bbox, crop_width, crop_height):
     """
@@ -427,18 +427,18 @@ def negative_crop(image_path, classes, bbox):
 
         # if there are valid negative crops, use one; otherwise, fall back to loading the full image.
         return tf.cond(n_valid > 0,
-            use_negative_crop,
-            fallback
-        )
+                       use_negative_crop,
+                       fallback
+                       )
 
     def fallback():
         return load_dataset(image_path, classes, bbox)
 
     # if the image is large enough to crop, attempt to create a negative crop; otherwise, load the full image.
     return tf.cond(can_crop,
-        make_negative_crop,
-        fallback
-    )
+                   make_negative_crop,
+                   fallback
+                   )
 
 @tf.function
 def load_train_dataset(image_path, classes, bbox):
@@ -495,7 +495,7 @@ def build_train_dataset(train_data, num_train):
     Returns:
         tf.data.Dataset: A TensorFlow dataset ready for training with images and bounding box annotations.
     """
-    
+
     # Shuffle the training samples at each epoch.
     train_data = train_data.shuffle(
         buffer_size=num_train,
@@ -940,8 +940,17 @@ def create_patches(image, patch_size=IMAGE_SIZE):
 
     patch_height, patch_width = patch_size
 
-    # Determine whether to use native patches or resized quadrants based on the image dimensions.
-    use_native_patches = tf.logical_and(image_width <= 2 * patch_width, image_height <= 2 * patch_height)
+    if image_height <= patch_height or image_width <= patch_width:
+        empty_patches = np.empty(
+            (0, patch_height, patch_width, 3),
+            dtype=image.dtype
+        )
+        return empty_patches, []
+
+    use_native_patches = (
+        image_width <= 2 * patch_width
+        and image_height <= 2 * patch_height
+    )
 
     def native_patches():
         x_starts = [0, image_width - patch_width]

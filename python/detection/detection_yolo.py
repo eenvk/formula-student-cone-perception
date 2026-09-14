@@ -1,4 +1,4 @@
-#tino
+#Granati
 
 import os
 
@@ -94,12 +94,12 @@ def visualize_train_samples(train_ds, num_samples=30):
                 x1, y1, x2, y2 = box
 
                 if (
-                    x1 < 0 or
-                    y1 < 0 or
-                    x2 > width or
-                    y2 > height or
-                    x2 <= x1 or
-                    y2 <= y1
+                        x1 < 0 or
+                        y1 < 0 or
+                        x2 > width or
+                        y2 > height or
+                        x2 <= x1 or
+                        y2 <= y1
                 ):
                     print(
                         f"[WARNING sample {sample_index}] "
@@ -160,7 +160,7 @@ def main():
     visualize_train_samples(train_ds, num_samples=30)
 
     print("Dataset is built")
-    
+
     # MODEL
     model = create_model()
     print("Build model with", model.num_classes, "classes")
@@ -178,8 +178,8 @@ def main():
         keras.callbacks.BackupAndRestore(
             backup_dir=str(
                 PROJECT_DIR / "training_backup"
-                )
-            ),
+            )
+        ),
 
         tf.keras.callbacks.EarlyStopping(
             monitor="box_loss",

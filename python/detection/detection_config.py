@@ -1,4 +1,4 @@
-#tino
+#Granati
 
 from pathlib import Path
 from dataset.dataset_utils import DETECTION_ID_TO_NAME

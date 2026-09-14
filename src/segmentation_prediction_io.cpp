@@ -1,4 +1,4 @@
-// Novkovic
+//Novkovic
 
 #include "segmentation_prediction_io.h"
 

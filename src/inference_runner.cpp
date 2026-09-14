@@ -1,4 +1,4 @@
-// Renzi
+//Renzi
 
 #include "inference_runner.h"
 
