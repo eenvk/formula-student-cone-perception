@@ -1,4 +1,4 @@
-# tino
+#Granati
 
 from dataset.dataset_utils import (
     Box,
@@ -103,7 +103,7 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
             prediction_to_box(prediction["bbox"], prediction["class_id"], prediction["score"],)
             for prediction in image_final_predictions
         ])
-        
+
     return final_predictions
 
 
@@ -119,7 +119,7 @@ def compute_areas_and_intersection(box_a, box_b):
 
     intersection_width = max(0.0, intersection_x2 - intersection_x1)
     intersection_height = max(0.0, intersection_y2 - intersection_y1)
-    
+
     intersection_area = (intersection_width * intersection_height)
 
     area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
@@ -210,7 +210,7 @@ def is_near_box(box_a, box_b, expansion_factor=0.30):
         ay1 - pad_y,
         ax2 + pad_x,
         ay2 + pad_y,
-    ]
+        ]
 
     ex1, ey1, ex2, ey2 = expanded_a
 
@@ -221,8 +221,8 @@ def is_near_box(box_a, box_b, expansion_factor=0.30):
     intersection_y2 = min(ey2, by2)
 
     return (
-        intersection_x2 > intersection_x1
-        and intersection_y2 > intersection_y1
+            intersection_x2 > intersection_x1
+            and intersection_y2 > intersection_y1
     )
 
 # Post Processing
@@ -288,12 +288,12 @@ def global_nms_patch_aware(predictions, image_width, image_height):
             # prediction is a border fragment close to best.
             # --------------------------------------------------
             if (
-                not best_near_border
-                and prediction_near_border
-                and is_near_box(
-                    best["bbox"],
-                    prediction["bbox"]
-                )
+                    not best_near_border
+                    and prediction_near_border
+                    and is_near_box(
+                best["bbox"],
+                prediction["bbox"]
+            )
             ):
                 # Suppress border fragment
                 continue
@@ -308,14 +308,14 @@ def global_nms_patch_aware(predictions, image_width, image_height):
 
         predictions = remaining
 
-    return selected    
+    return selected
 
 def clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max):
     x_min = max(0.0, min(x_min, image_width))
     y_min = max(0.0, min(y_min, image_height))
     x_max = max(0.0, min(x_max, image_width))
     y_max = max(0.0, min(y_max, image_height))
-    return x_min,y_min,x_max,y_max   
+    return x_min,y_min,x_max,y_max
 
 def final_nms(patch_predictions, total_predictions):
     """
@@ -472,7 +472,7 @@ def process_patch_view(predictions, index, metadata):
                 source_y_min + offset_y,
                 source_x_max + offset_x,
                 source_y_max + offset_y,
-            ],
+                ],
             "local_bbox": local_box,
             "class_id": class_id,
             "score": score,
@@ -515,4 +515,3 @@ def process_full_view(predictions, index, metadata, image_width, image_height):
         })
 
     return result
-

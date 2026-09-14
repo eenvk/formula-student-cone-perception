@@ -1,4 +1,4 @@
-#tino
+#Granati
 
 import tensorflow as tf
 import keras_cv
@@ -107,7 +107,7 @@ def build_train_val_datasets():
     inference_y_true = {
         "boxes": selected_val_bboxes,
         "classes": selected_val_classes
-        }
+    }
 
     # we build also the solutions of the validation set because this information are not present in the inference_ds
     val_y_true = {"boxes": val_bboxes, "classes": val_classes}
@@ -333,7 +333,7 @@ def positive_crop(image_path, classes, bbox):
         tf.logical_and(can_crop, n_valid > 0),
         make_positive_crop,
         fallback
-        )
+    )
 
 def clip_boxes_and_compute_retained_area(bbox, crop_bbox, crop_width, crop_height):
     bx1 = tf.clip_by_value(crop_bbox[:, 0], 0.0, crop_width)
@@ -417,17 +417,17 @@ def negative_crop(image_path, classes, bbox):
             return load_dataset(image_path, classes, bbox)
 
         return tf.cond(n_valid > 0,
-            use_negative_crop,
-            fallback
-        )
+                       use_negative_crop,
+                       fallback
+                       )
 
     def fallback():
         return load_dataset(image_path, classes, bbox)
 
     return tf.cond(can_crop,
-        make_negative_crop,
-        fallback
-    )
+                   make_negative_crop,
+                   fallback
+                   )
 
 @tf.function
 def load_train_dataset(image_path, classes, bbox):
@@ -474,7 +474,7 @@ def build_train_dataset(train_data, num_train):
     We also specify charateristics of the set during the training:
     reshuffle, ragged_batch, prefetch.
     """
-    
+
     # Shuffle the training samples at each epoch.
     train_data = train_data.shuffle(
         buffer_size=num_train,
@@ -897,8 +897,8 @@ def create_patches(image_rgb, patch_size=IMAGE_SIZE):
         return empty_patches, []
 
     use_native_patches = (
-        image_width <= 2 * patch_width
-        and image_height <= 2 * patch_height
+            image_width <= 2 * patch_width
+            and image_height <= 2 * patch_height
     )
 
     patches = []
@@ -942,9 +942,9 @@ def create_patches(image_rgb, patch_size=IMAGE_SIZE):
 
         for x_start, y_start, source_width, source_height in quadrants:
             crop = image[
-                y_start:y_start + source_height,
-                x_start:x_start + source_width
-            ]
+                   y_start:y_start + source_height,
+                   x_start:x_start + source_width
+                   ]
 
             letterboxed, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(
                 crop,

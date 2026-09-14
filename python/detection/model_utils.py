@@ -1,4 +1,4 @@
-# tino
+#Granati
 
 from pathlib import Path
 
@@ -34,11 +34,11 @@ from dataset.dataset_utils import (
 def configure_gpu():
     """
     Configures GPU memory growth and displays framework versions.
-    
+
     This function enables dynamic GPU memory allocation to prevent TensorFlow
     from reserving all GPU memory at startup. Also displays versions of
     TensorFlow and KerasCV, and notifies if no GPU is detected.
-    
+
     Returns:
         None (prints status information to console)
     """
@@ -66,13 +66,13 @@ def configure_gpu():
 def create_model(num_classes=None):
     """
     Creates and compiles a YOLOv8 object detection model.
-    
+
     Loads a pre-trained YOLOv8-S backbone (trained on COCO dataset),
     creates a detector head, and compiles the model with:
     - Adam optimizer with gradient clipping for stability
     - Binary crossentropy for classification loss
     - CIoU (Complete IoU) for bounding box loss
-    
+
     Returns:
         keras.Model: Compiled YOLOv8 detector model ready for training
     """
@@ -123,7 +123,7 @@ class InferenceValidation(keras.callbacks.Callback):
     def __init__(self, data, save_path, metadata, y_true, eval_every=10):
         """
         Initializes the callback.
-        
+
         Args:
             data: Validation dataset to evaluate on (batched)
             save_path: Path where best model weights will be saved
@@ -139,8 +139,8 @@ class InferenceValidation(keras.callbacks.Callback):
         self.best_map = -1.0
 
         for boxes, classes in zip(
-            y_true["boxes"],
-            y_true["classes"]
+                y_true["boxes"],
+                y_true["classes"]
         ):
             image_gt = []
 
@@ -152,7 +152,7 @@ class InferenceValidation(keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         """
         Called at the end of each training epoch.
-        
+
         Args:
             epoch: Current epoch number
             logs: Dictionary with training metrics (updated with COCO metrics)
