@@ -439,12 +439,15 @@ def load_train_dataset(image_path, classes, bbox):
     else:
         return negative_crop(image_path, classes, bbox)
 
-def augment_sample(images, bounding_boxes):
+def augment_sample(sample):
     """
     Applies random data augmentation without increasing dataset size.
     """
+    images = sample["images"]
+    bounding_boxes = sample["bounding_boxes"]
+
     if tf.random.uniform(()) < 0.5:
-        images = tf.image.random_brightness(images, max_delta=25)
+        images = tf.image.random_brightness(images, max_delta=25.5)
 
     if tf.random.uniform(()) < 0.5:
         images = tf.image.random_contrast(images, lower=0.9, upper=1.1)
@@ -454,7 +457,10 @@ def augment_sample(images, bounding_boxes):
 
     images = tf.clip_by_value(images, 0.0, 255.0)
 
-    return images, bounding_boxes
+    return {
+        "images": images,
+        "bounding_boxes": bounding_boxes
+    }
 
 def build_train_dataset(train_data, num_train):
     """
@@ -477,11 +483,11 @@ def build_train_dataset(train_data, num_train):
     )
 
     #load full_image or crop_image
-    train_ds = train_data.map(load_train_dataset,num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=True)
+    train_ds = train_data.map(load_train_dataset,num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=False)
     # we fix the image in 800x800
     # NOTe: crop image are already 800x800, while the full_image are not
-    train_ds = train_ds.map(resize_sample, num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=True)
-    train_ds = train_ds.map(augment_sample, num_parallel_calls=NUM_PARALLEL_CALLS, deterministic=True)
+    train_ds = train_ds.map(resize_sample, num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=False)
+    train_ds = train_ds.map(augment_sample, num_parallel_calls=NUM_PARALLEL_CALLS, deterministic=False)
 
     # group elems in batch
     # drop_remainder=True: discard the last elems if they do not fill a complete batch
@@ -580,15 +586,17 @@ def create_inference_views(image_path):
 
 def build_inference_dataset(image_paths):
     """
-    the validation inference set is used to verify the real behaviour of the model. this dataset will be composed
-    by patches of IMAGE_SIZE dimension and the original full image resize to IMAGE_SIZE.
-    This set is processed by the model as the test_set will be evaluated.
+    Validation inference dataset.
+
+    For images larger than IMAGE_SIZE in both dimensions:
+    - exactly 4 patch views are created;
+    - native IMAGE_SIZE patches are used when they cover the whole image;
+    - otherwise four full-coverage quadrants are letterboxed to IMAGE_SIZE;
+    - the full-image letterboxed view is always added.
+
+    Therefore a large image produces exactly 5 views total.
     """
-
     ds = tf.data.Dataset.from_tensor_slices(image_paths)
-
-    ds = ds.map(create_inference_views,num_parallel_calls=1)
-
     # prima:
     # elemento 0 -> [N0, 800, 800, 3]
     # elemento 1 -> [N1, 800, 800, 3]
@@ -597,18 +605,28 @@ def build_inference_dataset(image_paths):
     # view 0 -> [800, 800, 3]
     # view 1 -> [800, 800, 3]
     # ...
+    ds = ds.map(create_inference_views, num_parallel_calls=1)
 
     ds = ds.unbatch()
 
-    ds = ds.batch(PATCH_BATCH_SIZE, drop_remainder=False) #validation to all the images of the inference_dataset
+    ds = ds.batch(PATCH_BATCH_SIZE, drop_remainder=False)
     ds = ds.prefetch(1)
 
     return ds
 
 def build_inference_metadata(image_shapes):
     """
-    list of informations about the inference dataset.
-    It's needed in order to obtain information about the predictions of the images.
+    Build metadata for inference views using the hybrid 4-patch strategy.
+
+    Strategy:
+    - if the image is not larger than IMAGE_SIZE in both dimensions:
+      only the full-image view is used;
+    - if four native IMAGE_SIZE patches can cover the whole image:
+      use them without resize;
+    - otherwise split the image into four quadrants covering the whole image
+      and letterbox each quadrant to IMAGE_SIZE, preserving aspect ratio.
+
+    The full-image view is always appended.
     """
     all_metadata = []
 
@@ -616,40 +634,101 @@ def build_inference_metadata(image_shapes):
     target_height, target_width = IMAGE_SIZE
 
     for image_index, shape in enumerate(image_shapes.numpy()):
-
         image_height = int(shape[0])
         image_width = int(shape[1])
 
-        # we obtain a list of starting position of all the patches w.r.t. a single image
-        x_starts = get_patch_starts(image_width, patch_width, PATCH_STRIDE)
-        y_starts = get_patch_starts(image_height, patch_height, PATCH_STRIDE)
-
         local_view_index = 0
 
-        # PATCHES metadata
-        for y_start in y_starts:
-            for x_start in x_starts:
-                valid_width = min(patch_width, image_width - x_start)
-                valid_height = min(patch_height, image_height - y_start)
+        if image_height > patch_height and image_width > patch_width:
+            use_native_patches = ( image_width <= 2 * patch_width and image_height <= 2 * patch_height)
 
-                all_metadata.append({
-                    "view_index": len(all_metadata),
-                    "image_index": image_index,
-                    "local_view_index": local_view_index,
+            if use_native_patches:
+                x_starts = [0, image_width - patch_width]
+                y_starts = [0, image_height - patch_height]
 
-                    "is_patch": True,
+                for y_start in y_starts:
+                    for x_start in x_starts:
+                        all_metadata.append({
+                            "view_index": len(all_metadata),
+                            "image_index": image_index,
+                            "local_view_index": local_view_index,
 
-                    "offset_x": x_start,
-                    "offset_y": y_start,
+                            "is_patch": True,
+                            "is_resized_patch": False,
 
-                    "valid_width": valid_width,
-                    "valid_height": valid_height,
+                            "offset_x": x_start,
+                            "offset_y": y_start,
 
-                    "image_width": image_width,
-                    "image_height": image_height,
-                })
+                            "source_width": patch_width,
+                            "source_height": patch_height,
 
-                local_view_index += 1
+                            "valid_width": patch_width,
+                            "valid_height": patch_height,
+
+                            "scale_x": 1.0,
+                            "scale_y": 1.0,
+                            "pad_x": 0,
+                            "pad_y": 0,
+
+                            "image_width": image_width,
+                            "image_height": image_height,
+                        })
+
+                        local_view_index += 1
+
+            else:
+                split_x = image_width // 2
+                split_y = image_height // 2
+
+                quadrants = [
+                    (0, 0, split_x, split_y),
+                    (split_x, 0, image_width - split_x, split_y),
+                    (0, split_y, split_x, image_height - split_y),
+                    (split_x, split_y, image_width - split_x, image_height - split_y),
+                ]
+
+                for x_start, y_start, source_width, source_height in quadrants:
+                    scale = min(
+                        patch_width / source_width,
+                        patch_height / source_height
+                    )
+
+                    resized_width = int(np.round(source_width * scale))
+                    resized_height = int(np.round(source_height * scale))
+
+                    scale_x = resized_width / source_width
+                    scale_y = resized_height / source_height
+
+                    pad_x = (patch_width - resized_width) // 2
+                    pad_y = (patch_height - resized_height) // 2
+
+                    all_metadata.append({
+                        "view_index": len(all_metadata),
+                        "image_index": image_index,
+                        "local_view_index": local_view_index,
+
+                        "is_patch": True,
+                        "is_resized_patch": True,
+
+                        "offset_x": x_start,
+                        "offset_y": y_start,
+
+                        "source_width": source_width,
+                        "source_height": source_height,
+
+                        "valid_width": patch_width,
+                        "valid_height": patch_height,
+
+                        "scale_x": scale_x,
+                        "scale_y": scale_y,
+                        "pad_x": pad_x,
+                        "pad_y": pad_y,
+
+                        "image_width": image_width,
+                        "image_height": image_height,
+                    })
+
+                    local_view_index += 1
 
         # FULL IMAGE metadata
         scale = min(target_width / image_width, target_height / image_height)
@@ -672,7 +751,6 @@ def build_inference_metadata(image_shapes):
 
             "scale_x": scale_x,
             "scale_y": scale_y,
-
             "pad_x": pad_x,
             "pad_y": pad_y,
 
@@ -698,37 +776,33 @@ def select_inference_subset_indices(num_images, ratio=0.2):
     return shuffled_indices[:num_selected]
 
 
+
 def get_patch_starts(image_size, patch_size, stride):
     """
-    Return the starting coordinates of the patches along one axis.
+    Return at most two starting coordinates along one axis.
 
-    Example with:
-        image_size = 2048
-        patch_size = 800
-        stride = 600
+    The signature is kept unchanged so the rest of the project keeps working.
 
-    returns:
-        [0, 600, 1200, 1800]
+    If the image dimension is not larger than the patch dimension, no patch
+    position is returned.
 
-    The last patch can be smaller than 800 pixels and will
-    later be padded.
+    If the image dimension is larger than the patch dimension, two positions
+    are used:
+        - the beginning of the image
+        - the end of the image
+
+    Therefore, when BOTH image dimensions are larger than IMAGE_SIZE,
+    x_starts and y_starts each contain two values and exactly 4 patches
+    are generated.
+
+    `stride` is intentionally kept only for compatibility.
     """
+    del stride
 
-    if stride <= 0:
-        raise ValueError("stride must be greater than 0.")
+    if image_size <= patch_size:
+        return []
 
-    if stride >= patch_size:
-        raise ValueError(
-            "stride must be smaller than patch_size "
-            "to guarantee overlapping patches."
-        )
-
-    starts = [0]
-
-    while starts[-1] + patch_size < image_size:
-        starts.append(starts[-1] + stride)
-
-    return starts
+    return [0, image_size - patch_size]
 
 def resize_with_letterbox(image, target_size):
     target_h, target_w = target_size
@@ -792,39 +866,113 @@ def create_combined_views(image):
 
     return views, metadata
 
+
 def create_patches(image_rgb, patch_size=IMAGE_SIZE):
+    """
+    Create exactly 4 inference patches for images larger than IMAGE_SIZE
+    in both dimensions.
+
+    Hybrid strategy:
+
+    1) If four native IMAGE_SIZE patches can cover the whole image,
+       use four corner patches without resize. Overlap is allowed.
+
+    2) If four native patches would leave uncovered areas, split the whole
+       image into four quadrants that cover 100% of the image and letterbox
+       each quadrant to IMAGE_SIZE, preserving aspect ratio.
+
+    Images not larger than IMAGE_SIZE in both dimensions generate no patch
+    views and are handled only by the full-image view.
+    """
     image = image_rgb.numpy() if tf.is_tensor(image_rgb) else image_rgb
 
-    image_height, image_width = image_rgb.shape[:2]
+    image_height, image_width = image.shape[:2]
     patch_height, patch_width = patch_size
 
-        # starting position of each patch
-    x_starts = get_patch_starts(image_width, patch_width, PATCH_STRIDE)
-    y_starts = get_patch_starts(image_height, patch_height, PATCH_STRIDE)
+    if image_height <= patch_height or image_width <= patch_width:
+        empty_patches = np.empty(
+            (0, patch_height, patch_width, 3),
+            dtype=image.dtype
+        )
+        return empty_patches, []
 
-    # extract the patches
+    use_native_patches = (
+        image_width <= 2 * patch_width
+        and image_height <= 2 * patch_height
+    )
+
     patches = []
     patch_metadata = []
 
-    for y_start in y_starts:
-        for x_start in x_starts:
+    if use_native_patches:
+        x_starts = [0, image_width - patch_width]
+        y_starts = [0, image_height - patch_height]
 
-            patch, valid_width, valid_height = extract_patch(
-                image, x_start, y_start, patch_width, patch_height
-                )
+        for y_start in y_starts:
+            for x_start in x_starts:
+                patch = image[y_start:y_start + patch_height,x_start:x_start + patch_width]
 
-            patches.append(patch)
+                patches.append(patch)
 
-            # Store the information needed to convert
-            # local coordinates to global coordinates.
+                patch_metadata.append({
+                    "is_patch": True,
+                    "is_resized_patch": False,
+                    "offset_x": x_start,
+                    "offset_y": y_start,
+                    "source_width": patch_width,
+                    "source_height": patch_height,
+                    "valid_width": patch_width,
+                    "valid_height": patch_height,
+                    "scale_x": 1.0,
+                    "scale_y": 1.0,
+                    "pad_x": 0,
+                    "pad_y": 0,
+                })
+
+    else:
+        split_x = image_width // 2
+        split_y = image_height // 2
+
+        quadrants = [
+            (0, 0, split_x, split_y),
+            (split_x, 0, image_width - split_x, split_y),
+            (0, split_y, split_x, image_height - split_y),
+            (split_x, split_y, image_width - split_x, image_height - split_y),
+        ]
+
+        for x_start, y_start, source_width, source_height in quadrants:
+            crop = image[
+                y_start:y_start + source_height,
+                x_start:x_start + source_width
+            ]
+
+            letterboxed, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(
+                crop,
+                patch_size
+            )
+
+            letterboxed = (
+                letterboxed.numpy()
+                if tf.is_tensor(letterboxed)
+                else letterboxed
+            )
+
+            patches.append(letterboxed)
+
             patch_metadata.append({
                 "is_patch": True,
+                "is_resized_patch": True,
                 "offset_x": x_start,
                 "offset_y": y_start,
-                "valid_width": valid_width,
-                "valid_height": valid_height,
+                "source_width": source_width,
+                "source_height": source_height,
+                "valid_width": patch_width,
+                "valid_height": patch_height,
+                "scale_x": float(scale_x.numpy()) if tf.is_tensor(scale_x) else float(scale_x),
+                "scale_y": float(scale_y.numpy()) if tf.is_tensor(scale_y) else float(scale_y),
+                "pad_x": int(pad_x.numpy()) if tf.is_tensor(pad_x) else int(pad_x),
+                "pad_y": int(pad_y.numpy()) if tf.is_tensor(pad_y) else int(pad_y),
             })
-            
 
     patches = np.stack(patches, axis=0)
 

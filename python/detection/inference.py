@@ -158,8 +158,8 @@ def is_near_internal_patch_border(prediction, image_width, image_height, margin=
     """
     Check whether a detection is close to an INTERNAL patch border.
 
-    Borders that coincide with the real image boundary are not
-    considered problematic.
+    local_bbox is stored directly in source-patch coordinates, so the same
+    logic works for native patches and letterboxed quadrants.
     """
 
     x_min, y_min, x_max, y_max = prediction["local_bbox"]
@@ -170,8 +170,6 @@ def is_near_internal_patch_border(prediction, image_width, image_height, margin=
     valid_width = prediction["patch_valid_width"]
     valid_height = prediction["patch_valid_height"]
 
-    # Determine whether each patch border is internal
-    # or coincides with the real image border.
     has_internal_left = patch_x > 0
     has_internal_top = patch_y > 0
 
@@ -412,25 +410,68 @@ def process_patch_view(predictions, index, metadata):
 
     offset_x = metadata["offset_x"]
     offset_y = metadata["offset_y"]
+
     valid_width = metadata["valid_width"]
     valid_height = metadata["valid_height"]
 
+    source_width = metadata["source_width"]
+    source_height = metadata["source_height"]
+
+    scale_x = metadata["scale_x"]
+    scale_y = metadata["scale_y"]
+    pad_x = metadata["pad_x"]
+    pad_y = metadata["pad_y"]
+
     for bbox, class_id, score in get_view_detections(predictions, index):
+        x_min, y_min, x_max, y_max = bbox
+
+        # First clip in the detector input space.
         x_min, y_min, x_max, y_max = clip_coordinates(
-            valid_height, valid_width, *bbox
+            valid_height,
+            valid_width,
+            x_min,
+            y_min,
+            x_max,
+            y_max
         )
 
         if x_max <= x_min or y_max <= y_min:
             continue
 
-        local_box = [x_min, y_min, x_max, y_max]
+        # Convert from letterboxed 800x800 coordinates back to the source
+        # patch/quadrant coordinates.
+        source_x_min = (x_min - pad_x) / scale_x
+        source_y_min = (y_min - pad_y) / scale_y
+        source_x_max = (x_max - pad_x) / scale_x
+        source_y_max = (y_max - pad_y) / scale_y
+
+        source_x_min, source_y_min, source_x_max, source_y_max = clip_coordinates(
+            source_height,
+            source_width,
+            source_x_min,
+            source_y_min,
+            source_x_max,
+            source_y_max
+        )
+
+        if source_x_max <= source_x_min or source_y_max <= source_y_min:
+            continue
+
+        # Store local_bbox in SOURCE-PATCH coordinates.
+        # This keeps patch-border checks consistent even when letterbox is used.
+        local_box = [
+            source_x_min,
+            source_y_min,
+            source_x_max,
+            source_y_max,
+        ]
 
         result.append({
             "bbox": [
-                x_min + offset_x,
-                y_min + offset_y,
-                x_max + offset_x,
-                y_max + offset_y,
+                source_x_min + offset_x,
+                source_y_min + offset_y,
+                source_x_max + offset_x,
+                source_y_max + offset_y,
             ],
             "local_bbox": local_box,
             "class_id": class_id,
@@ -438,8 +479,8 @@ def process_patch_view(predictions, index, metadata):
             "patch_index": index,
             "patch_x": offset_x,
             "patch_y": offset_y,
-            "patch_valid_width": valid_width,
-            "patch_valid_height": valid_height,
+            "patch_valid_width": source_width,
+            "patch_valid_height": source_height,
         })
 
     return result

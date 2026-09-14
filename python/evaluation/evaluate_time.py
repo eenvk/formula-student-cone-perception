@@ -28,6 +28,7 @@ import random
 import cv2
 import numpy as np
 import tensorflow as tf
+import importlib
 
 from dataset.dataset_utils import (
     BACKGROUND_ID,
@@ -103,7 +104,6 @@ def elapsed_ms(start_time):
 
 def create_yolo_threshold_nms_inference(model):
     """Create a reusable YOLO graph with threshold + top-k + lightweight NMS."""
-    import importlib
 
     implementation = importlib.import_module(type(model).__module__)
     required = ("decode_regression_to_boxes", "get_anchors", "dist2bbox", "bounding_box", "ops")
@@ -145,34 +145,13 @@ def create_yolo_threshold_nms_inference(model):
         num_candidates = tf.shape(filtered_scores)[1]
         k = tf.minimum(num_candidates, YOLO_PRE_NMS_TOP_K)
 
-        top_scores, top_indices = tf.math.top_k(
-            filtered_scores,
-            k=k,
-            sorted=True,
-        )
+        top_scores, top_indices = tf.math.top_k(filtered_scores, k=k, sorted=True)
+        top_boxes = tf.gather(boxes_xyxy, top_indices, batch_dims=1)
 
-        top_boxes = tf.gather(
-            boxes_xyxy,
-            top_indices,
-            batch_dims=1,
-        )
-
-        top_classes = tf.gather(
-            classes,
-            top_indices,
-            batch_dims=1,
-        )
+        top_classes = tf.gather(classes, top_indices, batch_dims=1)
 
         # tf.image.non_max_suppression_padded expects y1,x1,y2,x2.
-        top_boxes_yxyx = tf.stack(
-            [
-                top_boxes[..., 1],
-                top_boxes[..., 0],
-                top_boxes[..., 3],
-                top_boxes[..., 2],
-            ],
-            axis=-1,
-        )
+        top_boxes_yxyx = tf.stack([top_boxes[..., 1], top_boxes[..., 0], top_boxes[..., 3], top_boxes[..., 2]], axis=-1)
 
         # Class-aware NMS: boxes from different classes are offset so that
         # they cannot suppress one another.
@@ -224,53 +203,17 @@ def create_yolo_threshold_nms_inference(model):
             ),
         )
 
-        selected_boxes = tf.gather(
-            top_boxes,
-            selected_indices,
-            batch_dims=1,
-        )
+        selected_boxes = tf.gather(top_boxes, selected_indices, batch_dims=1)
+        selected_scores = tf.gather(top_scores, selected_indices, batch_dims=1)
+        selected_classes = tf.gather(top_classes, selected_indices, batch_dims=1)
 
-        selected_scores = tf.gather(
-            top_scores,
-            selected_indices,
-            batch_dims=1,
-        )
+        valid_positions = tf.sequence_mask(num_detections, maxlen=YOLO_NMS_MAX_DETECTIONS)
 
-        selected_classes = tf.gather(
-            top_classes,
-            selected_indices,
-            batch_dims=1,
-        )
+        selected_boxes = tf.where(valid_positions[..., None], selected_boxes, tf.zeros_like(selected_boxes))
+        selected_scores = tf.where(valid_positions, selected_scores, tf.zeros_like(selected_scores))
+        selected_classes = tf.where(valid_positions, selected_classes, tf.zeros_like(selected_classes),)
 
-        valid_positions = tf.sequence_mask(
-            num_detections,
-            maxlen=YOLO_NMS_MAX_DETECTIONS,
-        )
-
-        selected_boxes = tf.where(
-            valid_positions[..., None],
-            selected_boxes,
-            tf.zeros_like(selected_boxes),
-        )
-
-        selected_scores = tf.where(
-            valid_positions,
-            selected_scores,
-            tf.zeros_like(selected_scores),
-        )
-
-        selected_classes = tf.where(
-            valid_positions,
-            selected_classes,
-            tf.zeros_like(selected_classes),
-        )
-
-        selected_boxes = implementation.bounding_box.convert_format(
-            selected_boxes,
-            source="xyxy",
-            target=model.bounding_box_format,
-            images=images,
-        )
+        selected_boxes = implementation.bounding_box.convert_format(selected_boxes, source="xyxy", target=model.bounding_box_format, images=images)
 
         return {
             "boxes": selected_boxes,
@@ -280,17 +223,10 @@ def create_yolo_threshold_nms_inference(model):
         }
 
     def infer(inputs):
-        tensor = tf.convert_to_tensor(
-            inputs,
-            dtype=tf.float32,
-        )
-
+        tensor = tf.convert_to_tensor(inputs, dtype=tf.float32)
         outputs = graph_predict(tensor)
 
-        return tf.nest.map_structure(
-            lambda x: x.numpy(),
-            outputs,
-        )
+        return tf.nest.map_structure(lambda x: x.numpy(), outputs)
 
     return infer, graph_predict
 
@@ -302,26 +238,16 @@ def warmup_yolo(infer):
 
     rng = np.random.default_rng(SEED)
 
-    inputs = rng.random(
-        (1, 800, 800, 3),
-        dtype=np.float32,
-    )
+    inputs = rng.random((1, 800, 800, 3), dtype=np.float32)
 
     start = time.perf_counter()
 
-    print(
-        f"\nYOLO threshold + top-k + NMS graph warm-up: {YOLO_WARMUP_RUNS} call(s)",
-        flush=True,
-    )
+    print(f"\nYOLO threshold + top-k + NMS graph warm-up: {YOLO_WARMUP_RUNS} call(s)", flush=True)
 
     for _ in range(YOLO_WARMUP_RUNS):
         infer(inputs)
 
-    print(
-        f"YOLO graph warm-up time: {time.perf_counter() - start:.2f} s "
-        "(excluded from pipeline FPS)",
-        flush=True,
-    )
+    print( f"YOLO graph warm-up time: {time.perf_counter() - start:.2f} s " "(excluded from pipeline FPS)", flush=True)
 
 
 def build_single_frame_detection_input(image_bgr):

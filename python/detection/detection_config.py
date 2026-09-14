@@ -8,7 +8,7 @@ SEED = 2026
 
 # Dataset split and batching
 SPLIT_RATIO = 0.20
-BATCH_SIZE = 4
+BATCH_SIZE = 6
 
 IMAGE_SIZE = (800, 800)
 

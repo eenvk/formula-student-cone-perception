@@ -84,7 +84,7 @@ def create_model(num_classes=None):
 
     backbone = (
         keras_cv.models.YOLOV8Backbone.from_preset(
-            "yolo_v8_xs_backbone_coco"
+            "yolo_v8_s_backbone_coco"
         )
     )
 
@@ -98,7 +98,7 @@ def create_model(num_classes=None):
     )
 
     print("\nYOLOv8 detector created.")
-    # model.summary()
+    model.summary()
 
     optimizer = tf.keras.optimizers.Adam(
         learning_rate=LEARNING_RATE,
@@ -109,6 +109,7 @@ def create_model(num_classes=None):
         optimizer=optimizer,
         classification_loss="binary_crossentropy",
         box_loss="ciou",
+        jit_compile=False
     )
 
     return model

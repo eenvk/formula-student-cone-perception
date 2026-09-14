@@ -181,6 +181,12 @@ def main():
                 )
             ),
 
+        tf.keras.callbacks.EarlyStopping(
+            monitor="box_loss",
+            mode="min",
+            patience=6,
+            restore_best_weights=True
+        ),
         keras.callbacks.TerminateOnNaN(), #stop training if NaN values are found
     ]
 
