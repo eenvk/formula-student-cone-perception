@@ -39,14 +39,8 @@ def visualize_train_samples(train_ds, num_samples=30):
     cols = 5
     rows = int(np.ceil(num_samples / cols))
 
-    fig, axes = plt.subplots(
-        rows,
-        cols,
-        figsize=(20, 4 * rows)
-    )
-
+    fig, axes = plt.subplots(rows, cols, figsize=(20, 4 * rows))
     axes = np.array(axes).reshape(-1)
-
     sample_index = 0
 
     for images, bounding_boxes in train_ds:
@@ -70,9 +64,7 @@ def visualize_train_samples(train_ds, num_samples=30):
             ax = axes[sample_index]
             ax.imshow(image)
 
-            # ------------------------------------------------
             # Basic checks
-            # ------------------------------------------------
             height, width = image.shape[:2]
 
             if height != IMAGE_SIZE[0] or width != IMAGE_SIZE[1]:
@@ -87,44 +79,18 @@ def visualize_train_samples(train_ds, num_samples=30):
                     f"{len(boxes)} boxes but {len(classes)} classes"
                 )
 
-            # ------------------------------------------------
             # Draw ground-truth boxes
-            # ------------------------------------------------
             for box, class_id in zip(boxes, classes):
                 x1, y1, x2, y2 = box
 
-                if (
-                        x1 < 0 or
-                        y1 < 0 or
-                        x2 > width or
-                        y2 > height or
-                        x2 <= x1 or
-                        y2 <= y1
-                ):
-                    print(
-                        f"[WARNING sample {sample_index}] "
-                        f"Invalid bbox: {box}"
-                    )
+                if (x1 < 0 or y1 < 0 or x2 > width or y2 > height or x2 <= x1 or y2 <= y1):
+                    print(f"[WARNING sample {sample_index}] " "Invalid bbox: {box}")
 
-                rect = Rectangle(
-                    (x1, y1),
-                    x2 - x1,
-                    y2 - y1,
-                    fill=False,
-                    linewidth=2
-                )
-
+                rect = Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, linewidth=2)
                 ax.add_patch(rect)
-
                 class_id = int(class_id)
 
-                ax.text(
-                    x1,
-                    y1,
-                    class_names.get(class_id, str(class_id)),
-                    fontsize=8,
-                    bbox={"alpha": 0.6}
-                )
+                ax.text(x1, y1, class_names.get(class_id, str(class_id)), fontsize=8, bbox={"alpha": 0.6})
 
             ax.set_title(
                 f"Sample {sample_index + 1} | "
@@ -156,7 +122,7 @@ def main():
     configure_gpu()
 
     # DATASET
-    train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, inference_y_true = build_train_val_datasets()
+    train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, inference_y_true, full_val_inference_ds, full_val_inference_metadata, full_inference_y_true = build_train_val_datasets()
     visualize_train_samples(train_ds, num_samples=30)
 
     print("Dataset is built")
@@ -175,28 +141,44 @@ def main():
             eval_every=EVAL_EVERY,
         ),
 
-        keras.callbacks.BackupAndRestore(
-            backup_dir=str(
-                PROJECT_DIR / "training_backup"
-            )
-        ),
-
         tf.keras.callbacks.EarlyStopping(
-            monitor="box_loss",
+            monitor="val_box_loss",
             mode="min",
             patience=6,
-            restore_best_weights=True
+            restore_best_weights=False
         ),
+
+        keras.callbacks.BackupAndRestore(backup_dir=str(PROJECT_DIR / "training_backup")),
         keras.callbacks.TerminateOnNaN(), #stop training if NaN values are found
     ]
 
-    history = model.fit(
-        train_ds,
-        validation_data=val_loss_ds,
-        epochs=EPOCHS,
-        callbacks=callbacks,
-        validation_freq=VALIDATION_FREQ,
+    history = model.fit(train_ds, validation_data=val_loss_ds,
+                        epochs=EPOCHS, callbacks=callbacks, validation_freq=VALIDATION_FREQ)
+
+    print("\n" + "=" * 80)
+    print("FINAL VALIDATION ON THE COMPLETE VALIDATION SET")
+    print("=" * 80)
+
+    print("\nLoading best detection weights...")
+    model.load_weights(DETECTION_WEIGHTS_PATH)
+
+    final_validation = InferenceValidation(
+        full_val_inference_ds,
+        DETECTION_WEIGHTS_PATH,
+        full_val_inference_metadata,
+        full_inference_y_true,
     )
+
+    final_validation.set_model(model)
+    detection_report, classification_report = final_validation.evaluate()
+
+    print("\nFinal detection report:")
+    for metric, value in detection_report.items():
+        print(f"{metric}: {value}")
+
+    print("\nFinal classification report:")
+    for metric, value in classification_report.items():
+        print(f"{metric}: {value}")
 
     return history
 

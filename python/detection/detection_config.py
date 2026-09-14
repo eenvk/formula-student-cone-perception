@@ -8,7 +8,7 @@ SEED = 2026
 
 # Dataset split and batching
 SPLIT_RATIO = 0.20
-BATCH_SIZE = 6
+BATCH_SIZE = 4
 
 IMAGE_SIZE = (800, 800)
 
@@ -31,7 +31,7 @@ GLOBAL_CLIPNORM = 10.0
 # Run validation every N epochs during model.fit().
 VALIDATION_FREQ = 5
 # Run the full inference / COCO evaluation every N epochs.
-EVAL_EVERY = 5
+EVAL_EVERY = 2
 
 # ============================================================
 # Classes

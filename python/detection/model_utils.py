@@ -149,17 +149,7 @@ class InferenceValidation(keras.callbacks.Callback):
 
             self.y_true.append(image_gt)
 
-    def on_epoch_end(self, epoch, logs=None):
-        """
-        Called at the end of each training epoch.
-
-        Args:
-            epoch: Current epoch number
-            logs: Dictionary with training metrics (updated with COCO metrics)
-        """
-        if ((epoch + 1) % self.eval_every != 0):
-            return
-
+    def evaluate(self):
         print("\nInference on validation set...")
         y_pred = predict_inference_dataset(self.model, self.data, self.inference_metadata)
 
@@ -173,25 +163,36 @@ class InferenceValidation(keras.callbacks.Callback):
         detection_evaluator = DetectionEvaluator()
         classification_evaluator = ClassificationEvaluator(iou_threshold=0.5)
 
-        for gt_boxes, pred_boxes in zip(self.y_true, y_pred,):
-            detection_evaluator.update(gt_boxes, pred_boxes,)
-            classification_evaluator.update(gt_boxes, pred_boxes,)
+        for gt_boxes, pred_boxes in zip(self.y_true, y_pred):
+            detection_evaluator.update(gt_boxes, pred_boxes)
+            classification_evaluator.update(gt_boxes, pred_boxes)
 
         detection_report = detection_evaluator.report()
         classification_report = classification_evaluator.report()
 
-        current_f1 = classification_report["macro_f1"]
         current_map = detection_report["mAP@0.5:0.95"]
+        current_f1 = classification_report["macro_f1"]
 
-        print(f"\nInference mAP@0.5:0.95: "f"{current_map:.4f}")
-        print(f"\nInference f1: "f"{current_f1:.4f}")
+        print(f"\nInference mAP@0.5:0.95: {current_map:.4f}")
+        print(f"Inference macro F1: {current_f1:.4f}")
+
+        return detection_report, classification_report
+
+    def on_epoch_end(self, epoch, logs=None):
+        if (epoch + 1) % self.eval_every != 0:
+            return
+
+        detection_report, classification_report = self.evaluate()
+
+        current_map = detection_report["mAP@0.5:0.95"]
+        current_f1 = classification_report["macro_f1"]
 
         if logs is not None:
             logs["mAP@0.5:0.95"] = current_map
-            logs["macro_f1"] = classification_report["macro_f1"]
+            logs["macro_f1"] = current_f1
 
         if current_map > self.best_map:
             self.best_map = current_map
             self.model.save_weights(str(self.save_path))
 
-            print("New best model saved to: " f"{self.save_path}")
+            print(f"New best model saved to: {self.save_path}")

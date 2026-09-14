@@ -112,7 +112,19 @@ def build_train_val_datasets():
         "classes": selected_val_classes
     }
 
-    return train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, inference_y_true
+    # Full inference validation used after training
+    full_val_inference_ds = build_inference_dataset(val_image_paths)
+    full_val_inference_metadata = build_inference_metadata(val_image_shapes)
+
+    full_inference_y_true = {
+        "boxes": val_bboxes,
+        "classes": val_classes
+    }
+
+
+    return (train_ds, val_loss_ds, val_inference_ds, val_inference_metadata, inference_y_true,
+            full_val_inference_ds, full_val_inference_metadata, full_inference_y_true)
+
 
 def prepare_dataset_data(pairs):
     """
@@ -941,12 +953,8 @@ def create_patches(image, patch_size=IMAGE_SIZE):
     patch_height, patch_width = patch_size
 
     if image_height <= patch_height or image_width <= patch_width:
-        empty_patches = np.empty(
-            (0, patch_height, patch_width, 3),
-            dtype=image.dtype
-        )
-        return empty_patches, []
-
+        return tf.zeros([0, patch_height, patch_width, 3], dtype=image.dtype)
+    
     use_native_patches = (
         image_width <= 2 * patch_width
         and image_height <= 2 * patch_height
