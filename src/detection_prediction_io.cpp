@@ -1,7 +1,6 @@
 //Granati
 
 #include "detection_prediction_io.h"
-
 #include "dataset_utils.h"
 
 #include <fstream>
@@ -9,18 +8,17 @@
 #include <stdexcept>
 #include <string>
 
+// Loads detection predictions from a CSV file into a DetectionPredictions structure.
+// The CSV file is expected to have the following header:
+// image_name,x_min,y_min,x_max,y_max,class_id,score
 DetectionPredictions load_detection_predictions(const std::filesystem::path& csv_path) {
     std::ifstream file(csv_path);
 
-    if (!file.is_open()) {
-        throw std::runtime_error("Detection CSV not found: " + csv_path.string());
-    }
+    if (!file.is_open()) { throw std::runtime_error("Detection CSV not found: " + csv_path.string());}
 
     std::string header;
-
-    if (!std::getline(file, header)) {
-        throw std::runtime_error("Detection CSV is empty.");
-    }
+    
+    if (!std::getline(file, header)) { throw std::runtime_error("Detection CSV is empty."); }
 
     if (!header.empty() && header.back() == '\r') {
         header.pop_back();
@@ -35,7 +33,7 @@ DetectionPredictions load_detection_predictions(const std::filesystem::path& csv
     int line_number = 1;
 
     while (std::getline(file, line)) {
-        ++line_number;
+        line_number++;
 
         if (line.empty()) {
             continue;
@@ -51,10 +49,14 @@ DetectionPredictions load_detection_predictions(const std::filesystem::path& csv
         std::string class_id;
         std::string score;
 
-        if (!std::getline(stream, image_name, ',') || !std::getline(stream, x_min, ',') || !std::getline(stream, y_min, ',') || !std::getline(stream, x_max, ',') || !std::getline(stream, y_max, ',') || !std::getline(stream, class_id, ',') || !std::getline(stream, score)) {
+        // Parse the CSV line into its components. If any component is missing, throw an error.
+        if (!std::getline(stream, image_name, ',') || !std::getline(stream, x_min, ',') || !std::getline(stream, y_min, ',')
+            || !std::getline(stream, x_max, ',') || !std::getline(stream, y_max, ',') || !std::getline(stream, class_id, ',')
+            ||!std::getline(stream, score)) {
             throw std::runtime_error("Invalid detection CSV row at line " + std::to_string(line_number));
         }
 
+        // Convert the parsed strings into their respective types and create a Box object.
         Box box;
         box.x_min = std::stoi(x_min);
         box.y_min = std::stoi(y_min);
@@ -63,14 +65,17 @@ DetectionPredictions load_detection_predictions(const std::filesystem::path& csv
         box.class_id = std::stoi(class_id);
         box.score = std::stod(score);
 
+        // Validate the Box object to ensure that the coordinates and class ID are within expected ranges.
         if (box.x_min < 0 || box.y_min < 0 || box.x_max <= box.x_min || box.y_max <= box.y_min) {
             throw std::runtime_error("Invalid bounding box at line " + std::to_string(line_number));
         }
 
+        // Validate the class ID and score to ensure they are within expected ranges
         if (!is_cone_class_id(box.class_id)) {
             throw std::runtime_error("Invalid class ID at line " + std::to_string(line_number));
         }
 
+        // Validate the score to ensure it is within the range [0.0, 1.0]
         if (box.score.value() < 0.0 || box.score.value() > 1.0) {
             throw std::runtime_error("Invalid score at line " + std::to_string(line_number));
         }
