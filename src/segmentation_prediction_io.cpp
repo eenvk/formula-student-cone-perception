@@ -1,10 +1,7 @@
 //Novkovic
 
 #include "segmentation_prediction_io.h"
-
 #include <stdexcept>
-#include <string>
-
 #include <opencv2/imgcodecs.hpp>
 
 cv::Mat load_prediction_mask(const std::filesystem::path& mask_dir, const std::filesystem::path& image_path, const cv::Size& expected_size) {

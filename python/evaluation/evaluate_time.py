@@ -1,4 +1,4 @@
-"""Optimized YOLO + U-Net inference pipeline."""
+"""Optimized yolo + unet inference pipeline"""
 
 import time
 import random

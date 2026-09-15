@@ -16,10 +16,6 @@ from dataset.dataset_utils import (
 )
 
 
-# -----------------------------------------------------------------------------
-# Segmentation evaluation: per-class IoU and cone-class mIoU
-# -----------------------------------------------------------------------------
-
 class SegmentationEvaluator:
     """Accumulate a dataset-level pixel confusion matrix and compute IoU."""
 
@@ -89,9 +85,6 @@ class SegmentationEvaluator:
         }
 
 
-# -----------------------------------------------------------------------------
-# Shared box matching and classification evaluation
-# -----------------------------------------------------------------------------
 
 def box_iou(box_a: Box, box_b: Box) -> float:
     """Compute intersection over union for two half-open xyxy boxes."""
@@ -249,9 +242,8 @@ class ClassificationEvaluator:
             "macro_f1": self.macro_f1(),
         }
 
-# -----------------------------------------------------------------------------
-# Detection evaluation: COCO-style mAP@0.5:0.95
-# -----------------------------------------------------------------------------
+
+
 
 def _average_precision(recall: np.ndarray, precision: np.ndarray) -> float:
     """Compute COCO-style 101-point interpolated average precision."""
@@ -370,10 +362,7 @@ class DetectionEvaluator:
         }
 
 
-# -----------------------------------------------------------------------------
-# Comprehensive detection report: global + per-class metrics, and breakdowns
-# by object size and pixel height
-# -----------------------------------------------------------------------------
+
 
 # COCO-style area ranges (in px^2), used for AP_small / AP_medium / AP_large.
 OBJECT_SIZE_RANGES: tuple[tuple[str, float, float], ...] = (
@@ -627,9 +616,6 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
         }
 
 
-# -----------------------------------------------------------------------------
-# Qualitative error analysis: select and render representative images
-# -----------------------------------------------------------------------------
 
 class QualitativeErrorSampler:
     """Accumulate per-image ground truth/prediction pairs and select a

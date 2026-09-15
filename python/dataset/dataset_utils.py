@@ -1,6 +1,6 @@
 #renzi
 
-"""Dataset extraction, preprocessing, validation, and evaluation utilities."""
+"""Dataset extraction, preprocessing, validation, and evaluation utilities"""
 
 from __future__ import annotations
 
@@ -16,9 +16,7 @@ import cv2
 import numpy as np
 
 
-# -----------------------------------------------------------------------------
-# Project and dataset paths
-# -----------------------------------------------------------------------------
+#paths
 
 PYTHON_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -33,9 +31,6 @@ SEGMENTATION_TEST_ANNOTATION_DIR = SEGMENTATION_TEST_ROOT / "ann"
 SEGMENTATION_TEST_IMAGE_DIR = SEGMENTATION_TEST_ROOT / "img"
 
 
-# -----------------------------------------------------------------------------
-# Class definitions
-# -----------------------------------------------------------------------------
 
 BACKGROUND_ID = 0
 YELLOW_CONE_ID = 1
@@ -91,7 +86,7 @@ DETECTION_ID_TO_NAME = {
     3: "big_orange_cone",
 }
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 MASK_COLORS = {
     BACKGROUND_ID: (0, 0, 0),
@@ -102,10 +97,6 @@ MASK_COLORS = {
     IGNORE_ID: (255, 255, 255),
 }
 
-
-# -----------------------------------------------------------------------------
-# Shared data structures and loading utilities
-# -----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class Box:
@@ -229,9 +220,6 @@ def load_image(image_path: str | Path) -> np.ndarray:
     return image
 
 
-# -----------------------------------------------------------------------------
-# Image and annotation pairing
-# -----------------------------------------------------------------------------
 
 def find_dataset_pairs(image_dir: str | Path, annotation_dir: str | Path) -> list[tuple[Path, Path]]:
     """Find deterministic image/annotation pairs inside one FSOCO subset."""
@@ -343,10 +331,6 @@ def train_validation_split(pairs: Sequence[tuple[Path, Path]], validation_fracti
 
     return shuffled_pairs[validation_size:], shuffled_pairs[:validation_size]
 
-
-# -----------------------------------------------------------------------------
-# Supervisely bitmap decoding and ground-truth extraction
-# -----------------------------------------------------------------------------
 
 def decode_bitmap(bitmap_data: str) -> np.ndarray:
     """Decode a compressed Supervisely bitmap into a local boolean mask."""
@@ -603,10 +587,7 @@ def generate_bbox_ground_truth_from_segmentation(dataset_root: str | Path = SEGM
     return ground_truth
 
 
-# -----------------------------------------------------------------------------
-# Shared preprocessing and validation
-# -----------------------------------------------------------------------------
-
+#shared preprocessing and validation
 def resize_image(image: np.ndarray, width: int, height: int) -> np.ndarray:
     """Resize an image with bilinear interpolation."""
 
@@ -732,10 +713,7 @@ def create_overlay(image_bgr: np.ndarray, mask: np.ndarray, alpha: float = 0.45)
     return overlay
 
 
-# -----------------------------------------------------------------------------
-# Internal validation helpers
-# -----------------------------------------------------------------------------
-
+#internal validation helpers
 def _validate_image_size(image_height: int, image_width: int) -> None:
     if not isinstance(image_height, int) or not isinstance(image_width, int):
         raise TypeError("image_height and image_width must be integers.")

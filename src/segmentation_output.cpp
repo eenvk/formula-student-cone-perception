@@ -1,12 +1,10 @@
 //Novkovic
 
 #include "segmentation_output.h"
-
 #include "dataset_utils.h"
 #include "visualization_common.h"
 
 #include <vector>
-
 #include <opencv2/imgproc.hpp>
 
 void save_segmentation_comparison(const cv::Mat& image_bgr, const cv::Mat& gt_mask, const cv::Mat& pred_mask, const std::filesystem::path& output_path) {

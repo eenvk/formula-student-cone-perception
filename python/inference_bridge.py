@@ -1,6 +1,6 @@
 #Novkovic
 
-"""Run the optimized frame-by-frame YOLO + U-Net inference pipeline and export predictions for the C++ application."""
+"""Run the optimized frame by frame yolo è u-net inference pipeline and export predictions for the c++ application"""
 
 import argparse
 import csv
@@ -24,7 +24,7 @@ SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 
 def parse_arguments():
-    """Read command-line arguments."""
+    """Read command-line arguments"""
     parser = argparse.ArgumentParser(description="Run optimized YOLO and U-Net inference for the C++ pipeline.")
     parser.add_argument("--image_dir", type=Path, required=True, help="Directory containing input images.")
     parser.add_argument("--output_dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directory where predictions are saved.")
@@ -32,7 +32,7 @@ def parse_arguments():
 
 
 def find_images(image_dir):
-    """Return all supported images in deterministic order."""
+    """Return all supported images in deterministic order"""
     if not image_dir.is_dir():
         raise FileNotFoundError(f"Image directory not found: {image_dir}")
 
@@ -46,7 +46,7 @@ def find_images(image_dir):
 
 
 def prepare_output_directory(output_dir):
-    """Create output directories and remove old prediction masks."""
+    """Create output directories and remove old prediction masks"""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mask_dir = output_dir / "masks"
@@ -59,7 +59,7 @@ def prepare_output_directory(output_dir):
 
 
 def load_models():
-    """Build YOLO and U-Net and load their trained weights."""
+    """Build yolo and unet and load their trained weights"""
     if not DETECTION_WEIGHTS_PATH.is_file():
         raise FileNotFoundError(f"YOLO weights not found: {DETECTION_WEIGHTS_PATH}")
 
@@ -78,7 +78,7 @@ def load_models():
 
 
 def save_detections(image_paths, all_predicted_boxes, output_path):
-    """Save YOLO predictions in a CSV file readable by C++."""
+    """Save yolo predictions in a csv file readable by c++"""
     with output_path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(["image_name", "x_min", "y_min", "x_max", "y_max", "class_id", "score"])
@@ -92,7 +92,8 @@ def save_detections(image_paths, all_predicted_boxes, output_path):
 
 
 def save_prediction_mask(image_path, image_bgr, predicted_mask, mask_dir):
-    """Validate and save one semantic prediction mask."""
+    """Validate and save one semantic prediction mask"""
+
     predicted_mask = np.asarray(predicted_mask)
 
     if predicted_mask.ndim != 2:
@@ -109,7 +110,7 @@ def save_prediction_mask(image_path, image_bgr, predicted_mask, mask_dir):
 
 
 def run_optimized_inference(image_paths, yolo_infer, unet_infer, mask_dir):
-    """Run the same optimized frame-by-frame pipeline used by evaluate_time.py."""
+    """Run the same optimized frame by frame pipeline used by evaluate_time.py"""
     all_predicted_boxes = []
 
     detection_seconds = 0.0
@@ -137,8 +138,11 @@ def run_optimized_inference(image_paths, yolo_infer, unet_infer, mask_dir):
 
 
 def save_timing(num_images, detection_seconds, segmentation_seconds, total_seconds, output_path):
-    """Save optimized pipeline timing and FPS."""
-    fps = num_images / total_seconds if total_seconds > 0.0 else 0.0
+    """Save optimized pipeline timing and fps"""
+    fps = 0.0
+
+    if total_seconds > 0.0:
+        fps = num_images / total_seconds
 
     with output_path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
@@ -149,7 +153,7 @@ def save_timing(num_images, detection_seconds, segmentation_seconds, total_secon
 
 
 def main():
-    """Run the optimized inference export pipeline."""
+
     arguments = parse_arguments()
 
     tf.keras.utils.set_random_seed(SEED)
