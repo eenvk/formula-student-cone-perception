@@ -1,6 +1,7 @@
 #Granati
 
 import numpy as np
+import tensorflow as tf
 
 from dataset.dataset_utils import (
     Box,
@@ -16,8 +17,35 @@ from detection.detection_config import (
     GLOBAL_CROSS_CONTAINMENT_THRESHOLD
 )
 
-def predict_inference_dataset(model, inference_ds, metadata) -> list[list[Box]]:
-    raw_predictions = model.predict(inference_ds)
+# def predict_inference_dataset(model, inference_ds, metadata) -> list[list[Box]]:
+def predict_inference_dataset(infer, inference_ds, metadata, verbose=True) -> list[list[Box]]:
+    outputs = {}
+    cardinality = tf.data.experimental.cardinality(inference_ds)
+    number_of_batches = int(cardinality.numpy())
+
+    progress_bar = None
+    if verbose and number_of_batches >= 0:
+        progress_bar = tf.keras.utils.Progbar(
+            target=number_of_batches,
+            unit_name="batch",
+        )
+
+    for batch_number, images in enumerate(inference_ds, start=1):
+        batch_predictions = infer(images)
+
+        for name, values in batch_predictions.items():
+            outputs.setdefault(name, []).append(values)
+
+        if progress_bar is not None:
+            progress_bar.update(batch_number)
+
+    if not outputs:
+        raise ValueError("Inference dataset is empty.")
+
+    raw_predictions = {
+        name: np.concatenate(parts, axis=0)
+        for name, parts in outputs.items()
+    }
 
     return postprocess_inference_dataset(raw_predictions, metadata)
 

@@ -1,6 +1,5 @@
 """Optimized YOLO + U-Net inference pipeline."""
 
-import importlib
 import time
 import random
 
@@ -18,101 +17,10 @@ from segmentation.segmentation_dataset import create_crop_box, letterbox_sample
 
 UNET_MAX_BATCH_SIZE = 32
 
-YOLO_SCORE_THRESHOLD = 0.25
-YOLO_PRE_NMS_TOP_K = 100
-YOLO_NMS_IOU_THRESHOLD = 0.50
-YOLO_NMS_MAX_DETECTIONS = 100
-
-
 def elapsed_ms(start_time):
     """Return elapsed time in milliseconds."""
     return (time.perf_counter() - start_time) * 1000.0
 
-
-def tensor_to_numpy(tensor):
-    """Convert a TensorFlow tensor to NumPy."""
-    return tensor.numpy()
-
-
-def create_yolo_inference(model):
-    """Create the optimized YOLO inference function."""
-    implementation = importlib.import_module(type(model).__module__)
-
-    required_functions = ("decode_regression_to_boxes", "get_anchors", "dist2bbox", "bounding_box", "ops")
-
-    if any(not hasattr(implementation, name) for name in required_functions):
-        raise RuntimeError("Installed YOLO implementation does not contain the required decoder functions.")
-
-    @tf.function(input_signature=[tf.TensorSpec((None, 800, 800, 3), tf.float32)])
-    def graph_predict(images):
-        raw_outputs = model(images, training=False)
-
-        distances = implementation.decode_regression_to_boxes(raw_outputs["boxes"])
-        anchors, strides = implementation.get_anchors(image_shape=images.shape[1:])
-        strides = implementation.ops.expand_dims(strides, axis=-1)
-
-        boxes = implementation.dist2bbox(distances, anchors) * strides
-
-        boxes_xyxy = implementation.bounding_box.convert_format(boxes, source="xyxy", target="xyxy", images=images)
-
-        class_scores = raw_outputs["classes"]
-
-        confidence = tf.reduce_max(class_scores, axis=-1)
-        classes = tf.argmax(class_scores, axis=-1, output_type=tf.int32)
-
-        threshold_mask = confidence >= YOLO_SCORE_THRESHOLD
-
-        filtered_scores = tf.where(threshold_mask, confidence, tf.fill(tf.shape(confidence), tf.constant(-1.0, dtype=confidence.dtype)))
-
-        num_candidates = tf.shape(filtered_scores)[1]
-        top_k = tf.minimum(num_candidates, YOLO_PRE_NMS_TOP_K)
-
-        top_scores, top_indices = tf.math.top_k(filtered_scores, k=top_k, sorted=True)
-
-        top_boxes = tf.gather(boxes_xyxy, top_indices, batch_dims=1)
-        top_classes = tf.gather(classes, top_indices, batch_dims=1)
-
-        top_boxes_yxyx = tf.stack([top_boxes[..., 1], top_boxes[..., 0], top_boxes[..., 3], top_boxes[..., 2]], axis=-1)
-
-        max_coordinate = tf.reduce_max(tf.abs(top_boxes_yxyx), axis=[1, 2], keepdims=True) + 1.0
-
-        class_offsets = tf.cast(top_classes, top_boxes_yxyx.dtype)[..., None] * max_coordinate
-
-        nms_boxes = top_boxes_yxyx + class_offsets
-
-        def nms_single(arguments):
-            boxes_one, scores_one = arguments
-
-            return tf.image.non_max_suppression_padded(boxes=boxes_one, scores=scores_one, max_output_size=YOLO_NMS_MAX_DETECTIONS, iou_threshold=YOLO_NMS_IOU_THRESHOLD, score_threshold=YOLO_SCORE_THRESHOLD, pad_to_max_output_size=True)
-
-        selected_indices, num_detections = tf.map_fn(nms_single, (nms_boxes, top_scores), fn_output_signature=(tf.TensorSpec((YOLO_NMS_MAX_DETECTIONS,), tf.int32), tf.TensorSpec((), tf.int32)))
-
-        selected_boxes = tf.gather(top_boxes, selected_indices, batch_dims=1)
-        selected_scores = tf.gather(top_scores, selected_indices, batch_dims=1)
-        selected_classes = tf.gather(top_classes, selected_indices, batch_dims=1)
-
-        valid_positions = tf.sequence_mask(num_detections, maxlen=YOLO_NMS_MAX_DETECTIONS)
-
-        selected_boxes = tf.where(valid_positions[..., None], selected_boxes, tf.zeros_like(selected_boxes))
-        selected_scores = tf.where(valid_positions, selected_scores, tf.zeros_like(selected_scores))
-        selected_classes = tf.where(valid_positions, selected_classes, tf.zeros_like(selected_classes))
-
-        selected_boxes = implementation.bounding_box.convert_format(selected_boxes, source="xyxy", target=model.bounding_box_format, images=images)
-
-        return {
-            "boxes": selected_boxes,
-            "confidence": selected_scores,
-            "classes": selected_classes,
-            "num_detections": num_detections,
-        }
-
-    def infer(inputs):
-        inputs = tf.convert_to_tensor(inputs, dtype=tf.float32)
-        outputs = graph_predict(inputs)
-
-        return tf.nest.map_structure(tensor_to_numpy, outputs)
-
-    return infer
 
 
 def build_detection_inputs(image_bgr):

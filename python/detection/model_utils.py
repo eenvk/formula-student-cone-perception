@@ -15,18 +15,15 @@ from detection.detection_config import (
     NUM_CLASSES,
 )
 
-from detection.inference import (
-    predict_inference_dataset
-)
+from detection.inference import predict_inference_dataset
 
 from evaluation.evaluation_utils import (
     DetectionEvaluator,
-    ClassificationEvaluator,
+    ClassificationEvaluator
 )
 
-from dataset.dataset_utils import (
-    ground_truth_to_box
-)
+from dataset.dataset_utils import ground_truth_to_box
+from detection.decoder import create_yolo_inference
 
 
 def configure_gpu():
@@ -139,12 +136,16 @@ class InferenceValidation(keras.callbacks.Callback):
 
             self.y_true.append(image_gt)
 
+    def set_model(self, model):
+        super().set_model(model)
+        self.infer = create_yolo_inference(model)
+
     def evaluate(self):
         """
         Runs inference on the validation dataset and evaluates predictions against ground truth.
         """
         print("\nInference on validation set...")
-        y_pred = predict_inference_dataset(self.model, self.data, self.inference_metadata)
+        y_pred = predict_inference_dataset(self.infer, self.data, self.inference_metadata)
 
         # Check that the number of predictions matches the number of ground truth images
         if len(self.y_true) != len(y_pred):

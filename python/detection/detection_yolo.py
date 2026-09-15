@@ -142,7 +142,7 @@ def main():
         ),
 
         tf.keras.callbacks.EarlyStopping(
-            monitor="box_loss",
+            monitor="val_box_loss",
             mode="min",
             patience=5,
             restore_best_weights=False
@@ -161,24 +161,51 @@ def main():
 
     print("\nLoading best detection weights...")
     model.load_weights(DETECTION_WEIGHTS_PATH)
+    print("\nUpdated model with best detection weights from validation set.")
 
     final_validation = InferenceValidation(
         full_val_inference_ds,
         DETECTION_WEIGHTS_PATH,
         full_val_inference_metadata,
-        full_inference_y_true,
+        full_inference_y_true
     )
 
     final_validation.set_model(model)
     detection_report, classification_report = final_validation.evaluate()
 
-    print("\nFinal detection report:")
-    for metric, value in detection_report.items():
-        print(f"{metric}: {value}")
+    class_names = detection_report["AP@0.5:0.95_per_class"].keys()
 
-    print("\nFinal classification report:")
-    for metric, value in classification_report.items():
-        print(f"{metric}: {value}")
+    print("\n" + "=" * 78)
+    print("FINAL VALIDATION RESULTS")
+    print("=" * 78)
+
+    print(
+        f"{'Class':<24}"
+        f"{'AP@0.5:0.95':>14}"
+        f"{'Precision':>12}"
+        f"{'Recall':>12}"
+        f"{'F1':>10}"
+    )
+    print("-" * 78)
+
+    for class_name in class_names:
+        average_precision = (detection_report["AP@0.5:0.95_per_class"][class_name])
+        precision = (classification_report["precision_per_class"][class_name])
+        recall = (classification_report["recall_per_class"][class_name])
+        f1_score = (classification_report["f1_per_class"][class_name])
+
+        print(
+            f"{class_name:<24}"
+            f"{average_precision:>14.4f}"
+            f"{precision:>12.4f}"
+            f"{recall:>12.4f}"
+            f"{f1_score:>10.4f}"
+        )
+
+    print("-" * 78)
+    print(f"mAP@0.5:0.95: {detection_report['mAP@0.5:0.95']:.4f}")
+    print(f"Macro F1: {classification_report['macro_f1']:.4f}")
+    print("=" * 78)
 
     return history
 
