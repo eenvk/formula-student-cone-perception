@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
 
@@ -11,7 +10,6 @@ from keras_cv import bounding_box
 from keras_cv import visualization
 
 from detection.detection_config import (
-    CLASS_MAPPING,
     GLOBAL_CLIPNORM,
     LEARNING_RATE,
     NUM_CLASSES,
@@ -38,9 +36,6 @@ def configure_gpu():
     This function enables dynamic GPU memory allocation to prevent TensorFlow
     from reserving all GPU memory at startup. Also displays versions of
     TensorFlow and KerasCV, and notifies if no GPU is detected.
-
-    Returns:
-        None (prints status information to console)
     """
     gpus = tf.config.list_physical_devices("GPU")
 
@@ -67,7 +62,7 @@ def create_model(num_classes=None):
     """
     Creates and compiles a YOLOv8 object detection model.
 
-    Loads a pre-trained YOLOv8-S backbone (trained on COCO dataset),
+    Loads a pre-trained YOLOv8-XS backbone (trained on COCO dataset),
     creates a detector head, and compiles the model with:
     - Adam optimizer with gradient clipping for stability
     - Binary crossentropy for classification loss
@@ -82,11 +77,7 @@ def create_model(num_classes=None):
     print("Number of classes", num_classes)
     print("\nLoading YOLOv8 backbone...")
 
-    backbone = (
-        keras_cv.models.YOLOV8Backbone.from_preset(
-            "yolo_v8_s_backbone_coco"
-        )
-    )
+    backbone = (keras_cv.models.YOLOV8Backbone.from_preset("yolo_v8_xs_backbone_coco"))
 
     print("Backbone loaded.")
 
@@ -122,12 +113,14 @@ class InferenceValidation(keras.callbacks.Callback):
 
     def __init__(self, data, save_path, metadata, y_true, eval_every=10):
         """
-        Initializes the callback.
+        Initializes the callback with validation data, save path, and evaluation frequency.
 
         Args:
-            data: Validation dataset to evaluate on (batched)
-            save_path: Path where best model weights will be saved
-            eval_every: Evaluate metrics every N epochs (default: 10)
+            data: Validation dataset for inference.
+            save_path: Path to save the best model weights.
+            metadata: Metadata for inference (e.g., image size, preprocessing).
+            y_true: Ground truth bounding boxes and class labels for evaluation.
+            eval_every: Frequency (in epochs) to run inference and evaluation.
         """
         super().__init__()
 
@@ -138,10 +131,7 @@ class InferenceValidation(keras.callbacks.Callback):
         self.y_true = []
         self.best_map = -1.0
 
-        for boxes, classes in zip(
-                y_true["boxes"],
-                y_true["classes"]
-        ):
+        for boxes, classes in zip(y_true["boxes"], y_true["classes"]):
             image_gt = []
 
             for box, class_id in zip(boxes, classes):
@@ -150,9 +140,13 @@ class InferenceValidation(keras.callbacks.Callback):
             self.y_true.append(image_gt)
 
     def evaluate(self):
+        """
+        Runs inference on the validation dataset and evaluates predictions against ground truth.
+        """
         print("\nInference on validation set...")
         y_pred = predict_inference_dataset(self.model, self.data, self.inference_metadata)
 
+        # Check that the number of predictions matches the number of ground truth images
         if len(self.y_true) != len(y_pred):
             raise ValueError(
                 f"Ground truth/prediction mismatch: "
@@ -160,6 +154,7 @@ class InferenceValidation(keras.callbacks.Callback):
                 f"{len(y_pred)} predicted images."
             )
 
+        # Evaluate predictions using detection and classification metrics
         detection_evaluator = DetectionEvaluator()
         classification_evaluator = ClassificationEvaluator(iou_threshold=0.5)
 
@@ -179,6 +174,11 @@ class InferenceValidation(keras.callbacks.Callback):
         return detection_report, classification_report
 
     def on_epoch_end(self, epoch, logs=None):
+        """
+        Callback function called at the end of each epoch during training.
+        Runs inference and evaluation every `eval_every` epochs, and saves the model if it achieves
+        a new best mAP score. (detection mean average precision)
+        """
         if (epoch + 1) % self.eval_every != 0:
             return
 

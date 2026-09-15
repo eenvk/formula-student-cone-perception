@@ -1,11 +1,12 @@
 #Granati
 
+import numpy as np
+
 from dataset.dataset_utils import (
     Box,
     DETECTION_ID_TO_NAME,
     prediction_to_box,
 )
-
 
 from detection.detection_config import (
     CONFIDENCE_THRESHOLD,
@@ -109,6 +110,8 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
 
 # Box Geometry
 def compute_areas_and_intersection(box_a, box_b):
+    """
+    Compute the areas of two xyxy bounding boxes and their intersection area."""
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
 
@@ -125,7 +128,7 @@ def compute_areas_and_intersection(box_a, box_b):
     area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
     area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
 
-    return intersection_area,area_a,area_b
+    return intersection_area, area_a, area_b
 
 def calculate_iou(box_a, box_b):
     """
@@ -160,6 +163,8 @@ def is_near_internal_patch_border(prediction, image_width, image_height, margin=
 
     local_bbox is stored directly in source-patch coordinates, so the same
     logic works for native patches and letterboxed quadrants.
+
+    Returns True if the detection is near an internal patch border, False otherwise.
     """
 
     x_min, y_min, x_max, y_max = prediction["local_bbox"]
@@ -191,6 +196,8 @@ def is_near_box(box_a, box_b, expansion_factor=0.30):
     box_a is expanded by a fraction of its width/height.
     Useful for detecting border fragments that may have
     little or no IoU with the main detection.
+
+    Returns True if box_b intersects the expanded region of box_a, False otherwise.
     """
 
     ax1, ay1, ax2, ay2 = box_a
@@ -202,15 +209,12 @@ def is_near_box(box_a, box_b, expansion_factor=0.30):
     if width_a <= 0 or height_a <= 0:
         return False
 
+    # Expand box_a by a fraction of its width and height
     pad_x = width_a * expansion_factor
     pad_y = height_a * expansion_factor
 
-    expanded_a = [
-        ax1 - pad_x,
-        ay1 - pad_y,
-        ax2 + pad_x,
-        ay2 + pad_y,
-        ]
+    # Create an expanded box around box_a
+    expanded_a = [ax1 - pad_x, ay1 - pad_y, ax2 + pad_x, ay2 + pad_y]
 
     ex1, ey1, ex2, ey2 = expanded_a
 
@@ -220,10 +224,8 @@ def is_near_box(box_a, box_b, expansion_factor=0.30):
     intersection_x2 = min(ex2, bx2)
     intersection_y2 = min(ey2, by2)
 
-    return (
-            intersection_x2 > intersection_x1
-            and intersection_y2 > intersection_y1
-    )
+    # Check if the intersection area is positive
+    return (intersection_x2 > intersection_x1 and intersection_y2 > intersection_y1)
 
 # Post Processing
 def global_nms_patch_aware(predictions, image_width, image_height):
@@ -260,12 +262,7 @@ def global_nms_patch_aware(predictions, image_width, image_height):
 
 
         for prediction in predictions:
-
-            prediction_near_border = is_near_internal_patch_border(
-                prediction,
-                image_width,
-                image_height
-            )
+            prediction_near_border = is_near_internal_patch_border(prediction, image_width, image_height)
 
             # Same patch:
             # do NOT use global NMS to suppress them.
@@ -287,14 +284,7 @@ def global_nms_patch_aware(predictions, image_width, image_height):
             # best is a reliable non-border detection,
             # prediction is a border fragment close to best.
             # --------------------------------------------------
-            if (
-                    not best_near_border
-                    and prediction_near_border
-                    and is_near_box(
-                best["bbox"],
-                prediction["bbox"]
-            )
-            ):
+            if (not best_near_border and prediction_near_border and is_near_box(best["bbox"], prediction["bbox"])):
                 # Suppress border fragment
                 continue
 
@@ -311,23 +301,27 @@ def global_nms_patch_aware(predictions, image_width, image_height):
     return selected
 
 def clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max):
+    """
+    Clip bounding box coordinates to be within the image dimensions.
+    """
     x_min = max(0.0, min(x_min, image_width))
     y_min = max(0.0, min(y_min, image_height))
     x_max = max(0.0, min(x_max, image_width))
     y_max = max(0.0, min(y_max, image_height))
+
     return x_min,y_min,x_max,y_max
 
 def final_nms(patch_predictions, total_predictions):
     """
     Resolve patch-vs-total duplicates using greedy NMS.
-
     Patch-vs-patch conflicts have already been handled by
     global_nms_patch_aware().
-
     Total-vs-total conflicts have already been handled by
     the model decoder.
-
     Therefore only cross-source conflicts are considered.
+
+    Returns:
+        list: Final predictions after NMS.
     """
 
     candidates = []
@@ -352,15 +346,8 @@ def final_nms(patch_predictions, total_predictions):
             if source == selected_source:
                 continue
 
-            iou = calculate_iou(
-                prediction["bbox"],
-                selected_prediction["bbox"]
-            )
-
-            containment = calculate_containment(
-                prediction["bbox"],
-                selected_prediction["bbox"]
-            )
+            iou = calculate_iou(prediction["bbox"], selected_prediction["bbox"])
+            containment = calculate_containment(prediction["bbox"], selected_prediction["bbox"])
 
             # Different classes are kept unless
             # containment is almost complete.
@@ -387,6 +374,11 @@ def final_nms(patch_predictions, total_predictions):
     return final_predictions
 
 def get_view_detections(predictions, index):
+    """
+    Extracts detections for a specific view from the model's predictions.
+    
+    Returns:
+        list of tuples: Each tuple contains (bbox, class_id, score) for a detection."""
     boxes = predictions["boxes"][index]
     classes = predictions["classes"][index]
     scores = predictions["confidence"][index]
@@ -406,14 +398,21 @@ def get_view_detections(predictions, index):
     return result
 
 def process_patch_view(predictions, index, metadata):
+    """
+    Convert predictions from a patch view into source-image coordinates.
+    
+    Returns:
+        list of dicts: Each dict contains metadata and coordinates for a detection in the source image."""
     result = []
 
+    # Extract patch metadata
     offset_x = metadata["offset_x"]
     offset_y = metadata["offset_y"]
 
     valid_width = metadata["valid_width"]
     valid_height = metadata["valid_height"]
 
+    # Extract source image dimensions and letterbox parameters
     source_width = metadata["source_width"]
     source_height = metadata["source_height"]
 
@@ -426,53 +425,31 @@ def process_patch_view(predictions, index, metadata):
         x_min, y_min, x_max, y_max = bbox
 
         # First clip in the detector input space.
-        x_min, y_min, x_max, y_max = clip_coordinates(
-            valid_height,
-            valid_width,
-            x_min,
-            y_min,
-            x_max,
-            y_max
-        )
+        x_min, y_min, x_max, y_max = clip_coordinates(valid_height, valid_width, x_min, y_min, x_max, y_max)
 
         if x_max <= x_min or y_max <= y_min:
             continue
 
-        # Convert from letterboxed 800x800 coordinates back to the source
-        # patch/quadrant coordinates.
+        # Convert from letterboxed 800x800 coordinates back to the source patch/quadrant coordinates.
         source_x_min = (x_min - pad_x) / scale_x
         source_y_min = (y_min - pad_y) / scale_y
         source_x_max = (x_max - pad_x) / scale_x
         source_y_max = (y_max - pad_y) / scale_y
 
-        source_x_min, source_y_min, source_x_max, source_y_max = clip_coordinates(
-            source_height,
-            source_width,
-            source_x_min,
-            source_y_min,
-            source_x_max,
-            source_y_max
-        )
+        # Clip the coordinates to ensure they are within the source image dimensions.
+        source_x_min, source_y_min, source_x_max, source_y_max = clip_coordinates(source_height, source_width, source_x_min,
+                                                                                  source_y_min, source_x_max, source_y_max)
 
         if source_x_max <= source_x_min or source_y_max <= source_y_min:
             continue
 
         # Store local_bbox in SOURCE-PATCH coordinates.
         # This keeps patch-border checks consistent even when letterbox is used.
-        local_box = [
-            source_x_min,
-            source_y_min,
-            source_x_max,
-            source_y_max,
-        ]
+        local_box = [source_x_min, source_y_min, source_x_max, source_y_max]
 
         result.append({
-            "bbox": [
-                source_x_min + offset_x,
-                source_y_min + offset_y,
-                source_x_max + offset_x,
-                source_y_max + offset_y,
-                ],
+            "bbox": [source_x_min + offset_x, source_y_min + offset_y,
+                     source_x_max + offset_x, source_y_max + offset_y],
             "local_bbox": local_box,
             "class_id": class_id,
             "score": score,
@@ -480,14 +457,20 @@ def process_patch_view(predictions, index, metadata):
             "patch_x": offset_x,
             "patch_y": offset_y,
             "patch_valid_width": source_width,
-            "patch_valid_height": source_height,
+            "patch_valid_height": source_height
         })
 
     return result
 
 def process_full_view(predictions, index, metadata, image_width, image_height):
+    """
+    Convert predictions from a full-image view into original-image coordinates.
+    
+    Returns:
+        list of dicts: Each dict contains metadata and coordinates for a detection in the original image"""
     result = []
 
+    # Extract letterbox parameters
     scale_x = metadata["scale_x"]
     scale_y = metadata["scale_y"]
     pad_x = metadata["pad_x"]
@@ -501,9 +484,8 @@ def process_full_view(predictions, index, metadata, image_width, image_height):
         x_max = (x_max - pad_x) / scale_x
         y_max = (y_max - pad_y) / scale_y
 
-        x_min, y_min, x_max, y_max = clip_coordinates(
-            image_height, image_width, x_min, y_min, x_max, y_max
-        )
+        # Clip the coordinates to ensure they are within the original image dimensions.
+        x_min, y_min, x_max, y_max = clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max)
 
         if x_max <= x_min or y_max <= y_min:
             continue

@@ -29,9 +29,9 @@ GLOBAL_CLIPNORM = 10.0
 # ============================================================
 # Validation / evaluation
 # Run validation every N epochs during model.fit().
-VALIDATION_FREQ = 5
+VALIDATION_FREQ = 2
 # Run the full inference / COCO evaluation every N epochs.
-EVAL_EVERY = 2
+EVAL_EVERY = 5
 
 # ============================================================
 # Classes
@@ -75,9 +75,9 @@ GLOBAL_CROSS_CONTAINMENT_THRESHOLD = 0.90
 # Training crops
 # Minimum fraction of the original bounding-box area
 # that must remain inside the crop.
-MIN_RETAINED_AREA = 0.4
+MIN_RETAINED_AREA = 0.3
 # Maximum number of attempts used to generate a valid negative crop.
-NUM_NEGATIVE_CROP_ATTEMPTS = 50
+NUM_NEGATIVE_CROP_ATTEMPTS = 20
 
 #Evaluation
 RUN_MODEL_INFERENCE = True

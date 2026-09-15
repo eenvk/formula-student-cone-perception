@@ -138,13 +138,13 @@ def main():
             DETECTION_WEIGHTS_PATH,
             val_inference_metadata,
             inference_y_true,
-            eval_every=EVAL_EVERY,
+            eval_every=EVAL_EVERY
         ),
 
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_box_loss",
+            monitor="box_loss",
             mode="min",
-            patience=6,
+            patience=5,
             restore_best_weights=False
         ),
 
