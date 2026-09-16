@@ -25,3 +25,15 @@ Required packages:
 - OpenCV-Python
 - NumPy
 - Matplotlib
+
+
+
+Dataset
+
+The provided test set must be placed in the following directory structure:
+
+dataset/
+└── test_set/
+    └── segmentation_test/
+        ├── ann/
+        └── img/
