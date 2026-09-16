@@ -1,73 +1,20 @@
-"""Optimized yolo + unet inference pipeline"""
+#Novkovic
+"""U-Net inference and semantic mask reconstruction."""
 
-import time
 import random
+import time
 
 import cv2
 import numpy as np
 import tensorflow as tf
 
+from timing.timing_utils import elapsed_ms
 from dataset.dataset_utils import BACKGROUND_ID
-from detection.data_pipeline import build_inference_metadata, create_combined_views
-from detection.detection_config import SEED
-from detection.inference import postprocess_inference_dataset
 from segmentation.segmentation_config import INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH, MASK_THRESHOLD, RANDOM_SEED
 from segmentation.segmentation_dataset import create_crop_box, letterbox_sample
 
 
 UNET_MAX_BATCH_SIZE = 32
-
-def elapsed_ms(start_time):
-    """Return elapsed time in milliseconds"""
-    return (time.perf_counter() - start_time) * 1000.0
-
-
-
-def build_detection_inputs(image_bgr):
-    """Create yolo views and metadata for one frame"""
-    image_height, image_width = image_bgr.shape[:2]
-
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    views = create_combined_views(image_rgb)
-
-    image_shapes = tf.constant([[image_height, image_width]], dtype=tf.int32)
-    metadata = build_inference_metadata(image_shapes)
-
-    if len(views) != len(metadata):
-        raise ValueError(f"Views/metadata mismatch: {len(views)} views and {len(metadata)} metadata elements")
-
-    inputs = np.ascontiguousarray(views, dtype=np.float32)
-
-    return inputs, metadata, len(views)
-
-
-def detect_frame(image_bgr, yolo_infer):
-    """Run yolo detection on one frame"""
-    timings = {}
-
-    start_time = time.perf_counter()
-
-    inputs, metadata, num_views = build_detection_inputs(image_bgr)
-
-    timings["detection_preprocess"] = elapsed_ms(start_time)
-
-    start_time = time.perf_counter()
-
-    raw_predictions = yolo_infer(inputs)
-
-    timings["yolo_inference"] = elapsed_ms(start_time)
-
-    start_time = time.perf_counter()
-
-    predictions = postprocess_inference_dataset(raw_predictions, metadata)
-
-    timings["detection_postprocess"] = elapsed_ms(start_time)
-
-    if len(predictions) != 1:
-        raise ValueError(f"Expected one prediction group, got {len(predictions)}")
-
-    return predictions[0], timings, num_views
-
 
 def prepare_segmentation_inputs(image_bgr, boxes):
     """Create unet crops from yolo bounding boxes"""
@@ -97,6 +44,7 @@ def prepare_segmentation_inputs(image_bgr, boxes):
 
 def create_unet_inference(model):
     """Create the optimized unet inference function"""
+
     @tf.function(input_signature=[tf.TensorSpec((None, INPUT_HEIGHT, INPUT_WIDTH, INPUT_CHANNELS), tf.float32)])
     def graph_predict(inputs):
         return model(inputs, training=False)
@@ -176,32 +124,3 @@ def predict_segmentation(image_bgr, boxes, unet_infer):
     timings["segmentation_postprocess"] = elapsed_ms(start_time)
 
     return semantic_mask, timings
-
-
-def run_pipeline_on_frame(image_bgr, yolo_infer, unet_infer):
-    """Run yolo and unet on one frame"""
-    pipeline_start = time.perf_counter()
-
-    predicted_boxes, detection_timings, num_views = detect_frame(image_bgr, yolo_infer)
-
-    predicted_mask, segmentation_timings = predict_segmentation(image_bgr, predicted_boxes, unet_infer)
-
-    pipeline_total = elapsed_ms(pipeline_start)
-
-    timings = {
-        **detection_timings,
-        **segmentation_timings,
-        "pipeline_total": pipeline_total,
-    }
-
-    return predicted_boxes, predicted_mask, timings, num_views
-
-
-def warmup_pipeline(image_bgr, yolo_infer, unet_infer):
-    """Run one complete frame before timing starts"""
-    print("Running one pipeline warm-up frame...")
-
-    _, _, _, num_views = run_pipeline_on_frame(image_bgr, yolo_infer, unet_infer)
-
-    print(f"Warm-up completed with {num_views} yolo views")
-    print("Warm-up time is excluded from fps")

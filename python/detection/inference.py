@@ -1,10 +1,21 @@
 #Granati
 
 import numpy as np
+import time
+
+import cv2
+import numpy as np
+import tensorflow as tf
+
+import time
+
+from timing.timing_utils import elapsed_ms
+from detection.data_pipeline import build_inference_metadata, create_combined_views
 
 from dataset.dataset_utils import Box, DETECTION_ID_TO_NAME, prediction_to_box
 from detection.detection_config import (CONFIDENCE_THRESHOLD, GLOBAL_NMS_IOU_THRESHOLD, GLOBAL_CONTAINMENT_THRESHOLD, PATCH_BORDER_MARGIN,
                                         GLOBAL_CROSS_CONTAINMENT_THRESHOLD)
+
 
 def predict_inference_dataset(infer, inference_ds, metadata) -> list[list[Box]]:
     outputs = {}
@@ -477,3 +488,48 @@ def process_full_view(predictions, index, metadata, image_width, image_height):
         })
 
     return result
+
+def build_detection_inputs(image_bgr):
+    """Create yolo views and metadata for one frame"""
+    image_height, image_width = image_bgr.shape[:2]
+
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    views = create_combined_views(image_rgb)
+
+    image_shapes = tf.constant([[image_height, image_width]], dtype=tf.int32)
+    metadata = build_inference_metadata(image_shapes)
+
+    if len(views) != len(metadata):
+        raise ValueError(f"Views/metadata mismatch: {len(views)} views and {len(metadata)} metadata elements")
+
+    inputs = np.ascontiguousarray(views, dtype=np.float32)
+
+    return inputs, metadata, len(views)
+
+
+def detect_frame(image_bgr, yolo_infer):
+    """Run yolo detection on one frame"""
+    timings = {}
+
+    start_time = time.perf_counter()
+
+    inputs, metadata, num_views = build_detection_inputs(image_bgr)
+
+    timings["detection_preprocess"] = elapsed_ms(start_time)
+
+    start_time = time.perf_counter()
+
+    raw_predictions = yolo_infer(inputs)
+
+    timings["yolo_inference"] = elapsed_ms(start_time)
+
+    start_time = time.perf_counter()
+
+    predictions = postprocess_inference_dataset(raw_predictions, metadata)
+
+    timings["detection_postprocess"] = elapsed_ms(start_time)
+
+    if len(predictions) != 1:
+        raise ValueError(f"Expected one prediction group, got {len(predictions)}")
+
+    return predictions[0], timings, num_views

@@ -1,4 +1,4 @@
-#Novkovic
+#
 
 """Run the optimized frame by frame yolo è u-net inference pipeline and export predictions for the c++ application"""
 
@@ -11,16 +11,17 @@ import numpy as np
 import tensorflow as tf
 
 from dataset.dataset_utils import PROJECT_ROOT, load_image
+from detection.decoder import create_yolo_inference
 from detection.detection_config import DETECTION_WEIGHTS_PATH, SEED
 from detection.model_utils import configure_gpu, create_model
-from evaluation.evaluate_time import create_unet_inference, run_pipeline_on_frame, warmup_pipeline
-from detection.decoder import create_yolo_inference  
+from inference_pipeline import run_pipeline_on_frame, warmup_pipeline
+from segmentation.predict_segmentation import create_unet_inference
 from segmentation.segmentation_model import build_unet
 
 SEGMENTATION_WEIGHTS_PATH = PROJECT_ROOT / "models" / "unet_best.weights.h5"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "evaluation" / "cpp_predictions"
 
-SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
 def parse_arguments():
