@@ -12,7 +12,7 @@
 #include <vector>
 
 // Metrics collected for a single test image.
-struct ImageMetrics {
+struct ImageMetrics{
     std::string image_name;
     double mean_iou;
     double macro_f1;

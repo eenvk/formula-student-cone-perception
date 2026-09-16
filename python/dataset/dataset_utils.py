@@ -79,12 +79,7 @@ SEGMENTATION_ID_TO_DETECTION_ID = {
 
 DETECTION_ID_TO_SEGMENTATION_ID = {detection_id: segmentation_id for segmentation_id, detection_id in SEGMENTATION_ID_TO_DETECTION_ID.items()}
 
-DETECTION_ID_TO_NAME = {
-    0: "yellow_cone",
-    1: "blue_cone",
-    2: "small_orange_cone",
-    3: "big_orange_cone",
-}
+DETECTION_ID_TO_NAME = { 0: "yellow_cone", 1: "blue_cone", 2: "small_orange_cone", 3: "big_orange_cone"}
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
@@ -100,7 +95,7 @@ MASK_COLORS = {
 
 @dataclass(frozen=True)
 class Box:
-    """Bounding box using half-open xyxy coordinates: [x_min, x_max) x [y_min, y_max)."""
+    """Bounding box using half-open xyxy coordinates: [x_min, x_max) x [y_min, y_max)"""
 
     x_min: int
     y_min: int
@@ -111,13 +106,13 @@ class Box:
 
     def __post_init__(self) -> None:
         if self.x_min < 0 or self.y_min < 0:
-            raise ValueError("Box minimum coordinates must be non-negative.")
+            raise ValueError("Box minimum coordinates must be non-negative")
         if self.x_max <= self.x_min or self.y_max <= self.y_min:
-            raise ValueError("Box maximum coordinates must be greater than minimum coordinates.")
+            raise ValueError("Box maximum coordinates must be greater than minimum coordinates")
         if self.class_id not in CONE_CLASS_IDS:
-            raise ValueError(f"Invalid shared cone class ID: {self.class_id}")
+            raise ValueError(f"Invalid shared cone class id: {self.class_id}")
         if self.score is not None and not 0.0 <= self.score <= 1.0:
-            raise ValueError("Box score must be in the range [0, 1].")
+            raise ValueError("Box score must be in the range [0, 1]")
 
     @property
     def area(self) -> int:
@@ -125,49 +120,49 @@ class Box:
 
 @dataclass(frozen=True)
 class SegmentationInstance:
-    """One cone instance with its class, bounding box, and binary mask."""
+    """One cone instance with its class, bounding box, and binary mask"""
 
     class_id: int
     bbox: Box
     mask: np.ndarray
 
 def class_name_to_id(class_name: str) -> int:
-    """Convert an FSOCO class name to the shared segmentation class ID."""
+    """Convert an fsoco class name to the shared segmentation class id"""
 
     if not isinstance(class_name, str) or not class_name.strip():
-        raise ValueError("class_name must be a non-empty string.")
+        raise ValueError("class_name must be a non-empty string")
 
     normalized_name = class_name.strip().lower()
 
     if normalized_name not in CLASS_NAME_TO_ID:
-        raise ValueError(f"Unknown FSOCO class: {class_name}")
+        raise ValueError(f"Unknown fsoco class: {class_name}")
 
     return CLASS_NAME_TO_ID[normalized_name]
 
 
 def segmentation_id_to_detection_id(class_id: int) -> int:
-    """Convert a shared segmentation class ID into a zero-based detection ID."""
+    """Convert a shared segmentation class id into a zero-based detection id"""
 
     if class_id not in SEGMENTATION_ID_TO_DETECTION_ID:
-        raise ValueError(f"Class ID {class_id} cannot be used as a detection class.")
+        raise ValueError(f"Class id {class_id} cannot be used as a detection class")
 
     return SEGMENTATION_ID_TO_DETECTION_ID[class_id]
 
 
 def detection_id_to_segmentation_id(class_id: int) -> int:
-    """Convert a zero-based detection ID into the shared segmentation class ID."""
+    """Convert a zero-based detection id into the shared segmentation class id"""
 
     if class_id not in DETECTION_ID_TO_SEGMENTATION_ID:
-        raise ValueError(f"Invalid detection class ID: {class_id}")
+        raise ValueError(f"Invalid detection class id: {class_id}")
 
     return DETECTION_ID_TO_SEGMENTATION_ID[class_id]
 
 
 def prediction_to_box(bbox_xyxy: Sequence[float], detection_class_id: int, score: float) -> Box:
-    """Convert one model prediction to the shared Box representation."""
+    """Convert one model prediction to the shared Box representation"""
 
     if len(bbox_xyxy) != 4:
-        raise ValueError("bbox_xyxy must contain exactly four coordinates.")
+        raise ValueError("bbox_xyxy must contain exactly four coordinates")
 
     x_min, y_min, x_max, y_max = (int(round(float(value))) for value in bbox_xyxy)
     return Box(x_min, y_min, x_max, y_max, detection_id_to_segmentation_id(int(detection_class_id)), float(score))
@@ -183,7 +178,7 @@ def ground_truth_to_box(bbox_xyxy, detection_class_id):
     )
 
 def load_annotation(annotation_path: str | Path) -> dict[str, Any]:
-    """Load and validate the top-level structure of a JSON annotation."""
+    """Load and validate the top-level structure of a json annotation"""
 
     annotation_path = Path(annotation_path)
 
@@ -194,10 +189,10 @@ def load_annotation(annotation_path: str | Path) -> dict[str, Any]:
         with annotation_path.open("r", encoding="utf-8") as file:
             annotation = json.load(file)
     except json.JSONDecodeError as error:
-        raise ValueError(f"Invalid JSON annotation: {annotation_path}") from error
+        raise ValueError(f"Invalid json annotation: {annotation_path}") from error
 
     if not isinstance(annotation, dict):
-        raise ValueError(f"Annotation root must be a JSON object: {annotation_path}")
+        raise ValueError(f"Annotation root must be a json object: {annotation_path}")
     if not isinstance(annotation.get("objects", []), list):
         raise ValueError(f"Annotation 'objects' must be a list: {annotation_path}")
 
@@ -205,7 +200,7 @@ def load_annotation(annotation_path: str | Path) -> dict[str, Any]:
 
 
 def load_image(image_path: str | Path) -> np.ndarray:
-    """Load an image in OpenCV BGR format."""
+    """Load an image in opencv bgr format"""
 
     image_path = Path(image_path)
 
@@ -221,8 +216,9 @@ def load_image(image_path: str | Path) -> np.ndarray:
 
 
 
+
 def find_dataset_pairs(image_dir: str | Path, annotation_dir: str | Path) -> list[tuple[Path, Path]]:
-    """Find deterministic image/annotation pairs inside one FSOCO subset."""
+    """Find deterministic image/annotation pairs inside one fsoco subset"""
 
     image_dir = Path(image_dir)
     annotation_dir = Path(annotation_dir)
@@ -270,7 +266,7 @@ def find_dataset_pairs(image_dir: str | Path, annotation_dir: str | Path) -> lis
 
 
 def find_all_dataset_pairs(dataset_root: str | Path) -> list[tuple[Path, Path]]:
-    """Find pairs in a direct ann/img root or in all one-level subset roots."""
+    """Find pairs in a direct ann/img root or in all one-level subset roots"""
 
     dataset_root = Path(dataset_root)
 
@@ -302,25 +298,25 @@ def find_all_dataset_pairs(dataset_root: str | Path) -> list[tuple[Path, Path]]:
 
 
 def get_bounding_boxes_train_pairs() -> list[tuple[Path, Path]]:
-    """Return pairs from dataset/fsoco_bounding_boxes_train."""
+    """Return pairs from dataset/fsoco_bounding_boxes_train"""
     return find_all_dataset_pairs(BOUNDING_BOXES_TRAIN_ROOT)
 
 
 def get_segmentation_train_pairs() -> list[tuple[Path, Path]]:
-    """Return pairs from dataset/fsoco_segmentation_train."""
+    """Return pairs from dataset/fsoco_segmentation_train"""
     return find_all_dataset_pairs(SEGMENTATION_TRAIN_ROOT)
 
 
 def get_segmentation_test_pairs() -> list[tuple[Path, Path]]:
-    """Return pairs from dataset/segmentation_test."""
+    """Return pairs from dataset/segmentation_test"""
     return find_dataset_pairs(SEGMENTATION_TEST_IMAGE_DIR, SEGMENTATION_TEST_ANNOTATION_DIR)
 
 
 def train_validation_split(pairs: Sequence[tuple[Path, Path]], validation_fraction: float = 0.20, seed: int = 42) -> tuple[list[tuple[Path, Path]], list[tuple[Path, Path]]]:
-    """Create a deterministic train/validation split without mutating the input."""
+    """Create a deterministic train/validation split without mutating the input"""
 
     if not 0.0 <= validation_fraction < 1.0:
-        raise ValueError("validation_fraction must be in the range [0.0, 1.0).")
+        raise ValueError("validation_fraction must be in the range [0.0, 1.0)")
 
     shuffled_pairs = list(pairs)
     random.Random(seed).shuffle(shuffled_pairs)
@@ -333,21 +329,21 @@ def train_validation_split(pairs: Sequence[tuple[Path, Path]], validation_fracti
 
 
 def decode_bitmap(bitmap_data: str) -> np.ndarray:
-    """Decode a compressed Supervisely bitmap into a local boolean mask."""
+    """Decode a compressed Supervisely bitmap into a local boolean mask"""
 
     if not isinstance(bitmap_data, str) or not bitmap_data:
-        raise ValueError("bitmap_data must be a non-empty base64 string.")
+        raise ValueError("bitmap_data must be a non-empty base64 string")
 
     try:
         compressed_data = base64.b64decode(bitmap_data, validate=True)
         image_data = zlib.decompress(compressed_data)
     except (ValueError, zlib.error) as error:
-        raise ValueError("Invalid compressed Supervisely bitmap data.") from error
+        raise ValueError("Invalid compressed Supervisely bitmap data") from error
 
     decoded_image = cv2.imdecode(np.frombuffer(image_data, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
 
     if decoded_image is None:
-        raise ValueError("Could not decode Supervisely bitmap image.")
+        raise ValueError("Could not decode Supervisely bitmap image")
     if decoded_image.ndim == 3 and decoded_image.shape[2] == 4:
         return decoded_image[:, :, 3] > 0
     if decoded_image.ndim == 2:
@@ -357,23 +353,23 @@ def decode_bitmap(bitmap_data: str) -> np.ndarray:
 
 
 def bitmap_object_to_full_mask(obj: dict[str, Any], image_height: int, image_width: int) -> np.ndarray:
-    """Convert one Supervisely bitmap object into a full-image boolean mask."""
+    """Convert one Supervisely bitmap object into a full-image boolean mask"""
 
     _validate_image_size(image_height, image_width)
 
     if obj.get("geometryType") != "bitmap":
-        raise ValueError("The annotation object is not a bitmap.")
+        raise ValueError("The annotation object is not a bitmap")
 
     bitmap = obj.get("bitmap")
 
     if not isinstance(bitmap, dict):
-        raise ValueError("Missing bitmap data in annotation object.")
+        raise ValueError("Missing bitmap data in annotation object")
 
     bitmap_data = bitmap.get("data")
     origin = bitmap.get("origin")
 
     if bitmap_data is None or not isinstance(origin, (list, tuple)) or len(origin) != 2:
-        raise ValueError("Bitmap annotation is missing valid data or origin.")
+        raise ValueError("Bitmap annotation is missing valid data or origin")
 
     local_mask = decode_bitmap(bitmap_data)
     origin_x, origin_y = int(origin[0]), int(origin[1])
@@ -399,7 +395,7 @@ def bitmap_object_to_full_mask(obj: dict[str, Any], image_height: int, image_wid
 
 
 def annotation_to_semantic_mask(annotation_path: str | Path, image_height: int, image_width: int) -> np.ndarray:
-    """Convert one Supervisely annotation to a five-class semantic mask."""
+    """Convert one Supervisely annotation to a five-class semantic mask"""
 
     _validate_image_size(image_height, image_width)
     annotation = load_annotation(annotation_path)
@@ -421,10 +417,10 @@ def annotation_to_semantic_mask(annotation_path: str | Path, image_height: int, 
 
 
 def binary_mask_to_bbox(binary_mask: np.ndarray) -> tuple[int, int, int, int] | None:
-    """Return the tight half-open xyxy box of a binary mask."""
+    """Return the tight half-open xyxy box of a binary mask"""
 
     if binary_mask.ndim != 2:
-        raise ValueError("binary_mask must be a 2D array.")
+        raise ValueError("binary_mask must be a 2D array")
 
     y_coordinates, x_coordinates = np.nonzero(binary_mask)
 
@@ -435,12 +431,12 @@ def binary_mask_to_bbox(binary_mask: np.ndarray) -> tuple[int, int, int, int] | 
 
 
 def rectangle_object_to_bbox(obj: dict[str, Any], image_height: int, image_width: int) -> tuple[int, int, int, int] | None:
-    """Convert one Supervisely rectangle into a clipped half-open xyxy box."""
+    """Convert one Supervisely rectangle into a clipped half-open xyxy box"""
 
     _validate_image_size(image_height, image_width)
 
     if obj.get("geometryType") != "rectangle":
-        raise ValueError("The annotation object is not a rectangle.")
+        raise ValueError("The annotation object is not a rectangle")
 
     exterior = obj.get("points", {}).get("exterior", [])
 
@@ -451,7 +447,7 @@ def rectangle_object_to_bbox(obj: dict[str, Any], image_height: int, image_width
         x_values = [float(point[0]) for point in exterior]
         y_values = [float(point[1]) for point in exterior]
     except (TypeError, ValueError, IndexError) as error:
-        raise ValueError("Invalid rectangle exterior coordinates.") from error
+        raise ValueError("Invalid rectangle exterior coordinates") from error
 
     x_min = max(0, int(np.floor(min(x_values))))
     y_min = max(0, int(np.floor(min(y_values))))
@@ -465,7 +461,7 @@ def rectangle_object_to_bbox(obj: dict[str, Any], image_height: int, image_width
 
 
 def object_to_bbox(obj: dict[str, Any], image_height: int, image_width: int) -> tuple[int, int, int, int] | None:
-    """Convert one bitmap or rectangle annotation object to a half-open xyxy box."""
+    """Convert one bitmap or rectangle annotation object to a half-open xyxy box"""
 
     geometry_type = obj.get("geometryType")
 
@@ -478,7 +474,7 @@ def object_to_bbox(obj: dict[str, Any], image_height: int, image_width: int) -> 
 
 
 def annotation_to_instances(annotation_path: str | Path, image_height: int, image_width: int, bitmap_only: bool = False) -> list[Box]:
-    """Extract one shared-class Box for every known cone instance."""
+    """Extract one shared-class Box for every known cone instance"""
 
     _validate_image_size(image_height, image_width)
     annotation = load_annotation(annotation_path)
@@ -509,14 +505,13 @@ def annotation_to_instances(annotation_path: str | Path, image_height: int, imag
 
 
 def annotation_to_bboxes(annotation_path: str | Path, image_height: int, image_width: int, bitmap_only: bool = False) -> list[dict[str, Any]]:
-    """Extract serializable bounding boxes with shared and detection class IDs."""
+    """Extract serializable bounding boxes with shared and detection class ids"""
 
     boxes = annotation_to_instances(annotation_path, image_height, image_width, bitmap_only=bitmap_only)
 
     return [
         {
-            "class_name": CLASS_ID_TO_NAME[box.class_id],
-            "segmentation_class_id": box.class_id,
+            "class_name": CLASS_ID_TO_NAME[box.class_id], "segmentation_class_id": box.class_id,
             "detection_class_id": segmentation_id_to_detection_id(box.class_id),
             "bbox_xyxy": [box.x_min, box.y_min, box.x_max, box.y_max],
         }
@@ -525,13 +520,13 @@ def annotation_to_bboxes(annotation_path: str | Path, image_height: int, image_w
 
 
 def annotation_to_bboxes_from_masks(annotation_path: str | Path, image_height: int, image_width: int) -> list[dict[str, Any]]:
-    """Derive one tight bounding box per bitmap instance for test evaluation."""
+    """Derive one tight bounding box per bitmap instance for test evaluation"""
 
     return annotation_to_bboxes(annotation_path, image_height, image_width, bitmap_only=True)
 
 
 def annotation_to_segmentation_instances(annotation_path: str | Path, image_height: int, image_width: int) -> list[SegmentationInstance]:
-    """Extract cone instances with their individual binary masks and bounding boxes."""
+    """Extract cone instances with their individual binary masks and bounding boxes"""
 
     _validate_image_size(image_height, image_width)
     annotation = load_annotation(annotation_path)
@@ -567,7 +562,7 @@ def annotation_to_segmentation_instances(annotation_path: str | Path, image_heig
 
 
 def generate_bbox_ground_truth_from_segmentation(dataset_root: str | Path = SEGMENTATION_TEST_ROOT, output_json_path: str | Path | None = None) -> dict[str, Any]:
-    """Generate detection ground truth from all test-set bitmap annotations."""
+    """Generate detection ground truth from all test-set bitmap annotations"""
 
     pairs = find_all_dataset_pairs(dataset_root)
     ground_truth: dict[str, Any] = {"classes": DETECTION_ID_TO_NAME, "images": []}
@@ -589,7 +584,7 @@ def generate_bbox_ground_truth_from_segmentation(dataset_root: str | Path = SEGM
 
 #shared preprocessing and validation
 def resize_image(image: np.ndarray, width: int, height: int) -> np.ndarray:
-    """Resize an image with bilinear interpolation."""
+    """Resize an image with bilinear interpolation"""
 
     _validate_image_array(image)
     _validate_image_size(height, width)
@@ -597,16 +592,16 @@ def resize_image(image: np.ndarray, width: int, height: int) -> np.ndarray:
 
 
 def resize_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:
-    """Resize a class mask with nearest-neighbor interpolation."""
+    """Resize a class mask with nearest-neighbor interpolation"""
 
     if mask.ndim != 2:
-        raise ValueError("mask must be a 2D array.")
+        raise ValueError("mask must be a 2D array")
     _validate_image_size(height, width)
     return cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
 
 
 def normalize_image(image: np.ndarray) -> np.ndarray:
-    """Convert an integer image to float32 values in the [0, 1] range."""
+    """Convert an integer image to float32 values in the [0, 1] range"""
 
     _validate_image_array(image)
 
@@ -614,7 +609,7 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
         minimum = float(np.min(image))
         maximum = float(np.max(image))
         if minimum < 0.0 or maximum > 1.0:
-            raise ValueError("Floating-point images must already be in the range [0, 1].")
+            raise ValueError("Floating-point images must already be in the range [0, 1]")
         return image.astype(np.float32, copy=False)
 
     if not np.issubdtype(image.dtype, np.integer):
@@ -625,7 +620,7 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
 
 
 def validate_dataset_pairs(pairs: Sequence[tuple[Path, Path]]) -> None:
-    """Check that every image and JSON annotation can be loaded."""
+    """Check that every image and JSON annotation can be loaded"""
 
     for image_path, annotation_path in pairs:
         load_image(image_path)
@@ -633,7 +628,7 @@ def validate_dataset_pairs(pairs: Sequence[tuple[Path, Path]]) -> None:
 
 
 def validate_segmentation_dataset(pairs: Sequence[tuple[Path, Path]]) -> None:
-    """Validate segmentation masks and their class IDs."""
+    """Validate segmentation masks and their class ids"""
 
     validate_dataset_pairs(pairs)
 
@@ -648,11 +643,11 @@ def validate_segmentation_dataset(pairs: Sequence[tuple[Path, Path]]) -> None:
         invalid_ids = [int(class_id) for class_id in np.unique(mask) if class_id != IGNORE_ID and not 0 <= class_id < NUM_CLASSES]
 
         if invalid_ids:
-            raise ValueError(f"Invalid class IDs {invalid_ids} in {annotation_path}")
+            raise ValueError(f"Invalid class ids {invalid_ids} in {annotation_path}")
 
 
 def validate_detection_dataset(pairs: Sequence[tuple[Path, Path]], bitmap_only: bool = False) -> None:
-    """Validate detection annotations and extracted boxes."""
+    """Validate detection annotations and extracted boxes"""
 
     validate_dataset_pairs(pairs)
 
@@ -662,13 +657,13 @@ def validate_detection_dataset(pairs: Sequence[tuple[Path, Path]], bitmap_only: 
 
 
 def validate_dataset(pairs: Sequence[tuple[Path, Path]]) -> None:
-    """Backward-compatible alias for segmentation dataset validation."""
+    """Backward-compatible alias for segmentation dataset validation"""
 
     validate_segmentation_dataset(pairs)
 
 
 def validate_project_dataset() -> None:
-    """Validate the three dataset branches required by the project."""
+    """Validate the three dataset branches required by the project"""
 
     validate_detection_dataset(get_bounding_boxes_train_pairs())
     validate_segmentation_dataset(get_segmentation_train_pairs())
@@ -676,15 +671,15 @@ def validate_project_dataset() -> None:
 
 
 def colorize_mask(mask: np.ndarray) -> np.ndarray:
-    """Convert a semantic mask into an RGB image."""
+    """Convert a semantic mask into a rgb image"""
 
     if mask.ndim != 2:
-        raise ValueError("mask must be a 2D array.")
+        raise ValueError("mask must be a 2D array")
 
     unknown_ids = set(int(value) for value in np.unique(mask)) - set(MASK_COLORS)
 
     if unknown_ids:
-        raise ValueError(f"Mask contains unknown class IDs: {sorted(unknown_ids)}")
+        raise ValueError(f"Mask contains unknown class ids: {sorted(unknown_ids)}")
 
     color_mask = np.zeros((*mask.shape, 3), dtype=np.uint8)
 
@@ -695,12 +690,12 @@ def colorize_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def create_overlay(image_bgr: np.ndarray, mask: np.ndarray, alpha: float = 0.45) -> np.ndarray:
-    """Overlay non-background semantic labels on a BGR image."""
+    """Overlay non-background semantic labels on a bgr image"""
 
     _validate_image_array(image_bgr)
 
     if not 0.0 <= alpha <= 1.0:
-        raise ValueError("alpha must be in the range [0, 1].")
+        raise ValueError("alpha must be in the range [0, 1]")
     if image_bgr.shape[:2] != mask.shape:
         raise ValueError(f"Shape mismatch: image={image_bgr.shape[:2]}, mask={mask.shape}")
 
@@ -716,15 +711,15 @@ def create_overlay(image_bgr: np.ndarray, mask: np.ndarray, alpha: float = 0.45)
 #internal validation helpers
 def _validate_image_size(image_height: int, image_width: int) -> None:
     if not isinstance(image_height, int) or not isinstance(image_width, int):
-        raise TypeError("image_height and image_width must be integers.")
+        raise TypeError("image_height and image_width must be integers")
     if image_height <= 0 or image_width <= 0:
-        raise ValueError("image_height and image_width must be positive.")
+        raise ValueError("image_height and image_width must be positive")
 
 
 def _validate_image_array(image: np.ndarray) -> None:
     if not isinstance(image, np.ndarray):
-        raise TypeError("image must be a NumPy array.")
+        raise TypeError("image must be a NumPy array")
     if image.ndim not in (2, 3):
-        raise ValueError("image must be a 2D or 3D array.")
+        raise ValueError("image must be a 2D or 3D array")
     if image.size == 0:
-        raise ValueError("image must not be empty.")
+        raise ValueError("image must not be empty")

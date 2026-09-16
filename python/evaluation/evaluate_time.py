@@ -18,13 +18,13 @@ from segmentation.segmentation_dataset import create_crop_box, letterbox_sample
 UNET_MAX_BATCH_SIZE = 32
 
 def elapsed_ms(start_time):
-    """Return elapsed time in milliseconds."""
+    """Return elapsed time in milliseconds"""
     return (time.perf_counter() - start_time) * 1000.0
 
 
 
 def build_detection_inputs(image_bgr):
-    """Create YOLO views and metadata for one frame."""
+    """Create yolo views and metadata for one frame"""
     image_height, image_width = image_bgr.shape[:2]
 
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
@@ -34,7 +34,7 @@ def build_detection_inputs(image_bgr):
     metadata = build_inference_metadata(image_shapes)
 
     if len(views) != len(metadata):
-        raise ValueError(f"Views/metadata mismatch: {len(views)} views and {len(metadata)} metadata elements.")
+        raise ValueError(f"Views/metadata mismatch: {len(views)} views and {len(metadata)} metadata elements")
 
     inputs = np.ascontiguousarray(views, dtype=np.float32)
 
@@ -42,7 +42,7 @@ def build_detection_inputs(image_bgr):
 
 
 def detect_frame(image_bgr, yolo_infer):
-    """Run YOLO detection on one frame."""
+    """Run yolo detection on one frame"""
     timings = {}
 
     start_time = time.perf_counter()
@@ -64,13 +64,13 @@ def detect_frame(image_bgr, yolo_infer):
     timings["detection_postprocess"] = elapsed_ms(start_time)
 
     if len(predictions) != 1:
-        raise ValueError(f"Expected one prediction group, got {len(predictions)}.")
+        raise ValueError(f"Expected one prediction group, got {len(predictions)}")
 
     return predictions[0], timings, num_views
 
 
 def prepare_segmentation_inputs(image_bgr, boxes):
-    """Create U-Net crops from YOLO bounding boxes."""
+    """Create unet crops from yolo bounding boxes"""
     image_height, image_width = image_bgr.shape[:2]
 
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
@@ -96,7 +96,7 @@ def prepare_segmentation_inputs(image_bgr, boxes):
 
 
 def create_unet_inference(model):
-    """Create the optimized U-Net inference function."""
+    """Create the optimized unet inference function"""
     @tf.function(input_signature=[tf.TensorSpec((None, INPUT_HEIGHT, INPUT_WIDTH, INPUT_CHANNELS), tf.float32)])
     def graph_predict(inputs):
         return model(inputs, training=False)
@@ -121,12 +121,8 @@ def create_unet_inference(model):
 
 
 def predict_segmentation(image_bgr, boxes, unet_infer):
-    """Create the semantic segmentation mask from YOLO detections."""
-    timings = {
-        "segmentation_preprocess": 0.0,
-        "unet_inference": 0.0,
-        "segmentation_postprocess": 0.0,
-    }
+    """Create the semantic segmentation mask from yolo detections"""
+    timings = {"segmentation_preprocess": 0.0, "unet_inference": 0.0, "segmentation_postprocess": 0.0 }
 
     image_height, image_width = image_bgr.shape[:2]
 
@@ -183,7 +179,7 @@ def predict_segmentation(image_bgr, boxes, unet_infer):
 
 
 def run_pipeline_on_frame(image_bgr, yolo_infer, unet_infer):
-    """Run YOLO and U-Net on one frame."""
+    """Run yolo and unet on one frame"""
     pipeline_start = time.perf_counter()
 
     predicted_boxes, detection_timings, num_views = detect_frame(image_bgr, yolo_infer)
@@ -202,10 +198,10 @@ def run_pipeline_on_frame(image_bgr, yolo_infer, unet_infer):
 
 
 def warmup_pipeline(image_bgr, yolo_infer, unet_infer):
-    """Run one complete frame before timing starts."""
+    """Run one complete frame before timing starts"""
     print("Running one pipeline warm-up frame...")
 
     _, _, _, num_views = run_pipeline_on_frame(image_bgr, yolo_infer, unet_infer)
 
-    print(f"Warm-up completed with {num_views} YOLO views.")
-    print("Warm-up time is excluded from FPS.")
+    print(f"Warm-up completed with {num_views} yolo views")
+    print("Warm-up time is excluded from fps")

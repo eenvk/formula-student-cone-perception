@@ -6,7 +6,7 @@
 #include <optional>
 
 // Bounding box representation used by detection and evaluation modules.
-struct Box {
+struct Box{
     int x_min = 0;
     int y_min = 0;
     int x_max = 0;

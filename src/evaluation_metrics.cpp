@@ -16,21 +16,21 @@
 
 namespace {
 
-    struct MatchingResult {
+    struct MatchingResult{
         std::vector<std::pair<int, int>> matches;
         std::vector<int> unmatched_gt;
         std::vector<int> unmatched_pred;
     };
 
-    struct Candidate {
+    struct Candidate{
         double iou;
         int gt_index;
         int pred_index;
     };
 
     // Orders candidate matches by IoU and then by stable box indices.
-    bool compare_candidates(const Candidate& first, const Candidate& second) {
-        if (first.iou != second.iou) {
+    bool compare_candidates(const Candidate& first, const Candidate& second){
+        if (first.iou != second.iou){
             return first.iou > second.iou;
         }
 
@@ -42,12 +42,12 @@ namespace {
     }
 
     // Computes the area of a bounding box while protecting against invalid extents.
-    int box_area(const Box& box) {
+    int box_area(const Box& box){
         return std::max(0, box.x_max - box.x_min) * std::max(0, box.y_max - box.y_min);
     }
 
     // Computes the intersection-over-union of two bounding boxes.
-    double box_iou(const Box& box_a, const Box& box_b) {
+    double box_iou(const Box& box_a, const Box& box_b){
         const int x_min = std::max(box_a.x_min, box_b.x_min);
         const int y_min = std::max(box_a.y_min, box_b.y_min);
         const int x_max = std::min(box_a.x_max, box_b.x_max);
@@ -56,7 +56,7 @@ namespace {
         const int intersection = std::max(0, x_max - x_min) * std::max(0, y_max - y_min);
         const int union_area = box_area(box_a) + box_area(box_b) - intersection;
 
-        if (union_area <= 0) {
+        if (union_area <= 0){
             return 0.0;
         }
 
@@ -64,18 +64,18 @@ namespace {
     }
 
     // Greedily matches predictions to ground truth using the highest IoU first.
-    MatchingResult match_by_iou(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes, double iou_threshold) {
-        if (iou_threshold < 0.0 || iou_threshold > 1.0) {
+    MatchingResult match_by_iou(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes, double iou_threshold){
+        if (iou_threshold < 0.0 || iou_threshold > 1.0){
             throw std::invalid_argument("iou_threshold must be in the range [0, 1].");
         }
 
         std::vector<Candidate> candidates;
 
-        for (std::size_t gt_index = 0; gt_index < gt_boxes.size(); ++gt_index) {
-            for (std::size_t pred_index = 0; pred_index < pred_boxes.size(); ++pred_index) {
+        for (std::size_t gt_index = 0; gt_index < gt_boxes.size(); ++gt_index){
+            for (std::size_t pred_index = 0; pred_index < pred_boxes.size(); ++pred_index){
                 const double iou = box_iou(gt_boxes[gt_index], pred_boxes[pred_index]);
 
-                if (iou >= iou_threshold) {
+                if (iou >= iou_threshold){
                     candidates.push_back({iou, static_cast<int>(gt_index), static_cast<int>(pred_index)});
                 }
             }
@@ -88,8 +88,8 @@ namespace {
 
         MatchingResult result;
 
-        for (const Candidate& candidate : candidates) {
-            if (matched_gt[static_cast<std::size_t>(candidate.gt_index)] || matched_pred[static_cast<std::size_t>(candidate.pred_index)]) {
+        for (const Candidate& candidate : candidates){
+            if (matched_gt[static_cast<std::size_t>(candidate.gt_index)] || matched_pred[static_cast<std::size_t>(candidate.pred_index)]){
                 continue;
             }
 
@@ -99,13 +99,13 @@ namespace {
             result.matches.emplace_back(candidate.gt_index, candidate.pred_index);
         }
 
-        for (std::size_t index = 0; index < matched_gt.size(); ++index) {
+        for (std::size_t index = 0; index < matched_gt.size(); ++index){
             if (!matched_gt[index]) {
                 result.unmatched_gt.push_back(static_cast<int>(index));
             }
         }
 
-        for (std::size_t index = 0; index < matched_pred.size(); ++index) {
+        for (std::size_t index = 0; index < matched_pred.size(); ++index){
             if (!matched_pred[index]) {
                 result.unmatched_pred.push_back(static_cast<int>(index));
             }
@@ -114,9 +114,9 @@ namespace {
         return result;
     }
 
-    // Computes the mean while leaving empty inputs as NaN.
-    double average_values(const std::vector<double>& values) {
-        if (values.empty()) {
+    // Computes the mean while leaving empty inputs as nan.
+    double average_values(const std::vector<double>& values){
+        if (values.empty()){
             return std::numeric_limits<double>::quiet_NaN();
         }
 
@@ -126,38 +126,38 @@ namespace {
     }
 
     // Returns the cone classes included in all macro-averaged metrics.
-    std::vector<int> default_cone_class_ids() {
+    std::vector<int> default_cone_class_ids(){
         return std::vector<int>(CONE_CLASS_IDS.begin(), CONE_CLASS_IDS.end());
     }
 
     // Checks whether a class belongs to the requested evaluation subset.
-    bool contains_class_id(const std::vector<int>& class_ids, int class_id) {
+    bool contains_class_id(const std::vector<int>& class_ids, int class_id){
         return std::find(class_ids.begin(), class_ids.end(), class_id) != class_ids.end();
     }
 
     // Integrates the precision-recall curve using the precision envelope.
-    double average_precision(const std::vector<double>& recall, const std::vector<double>& precision) {
-        if (recall.size() != precision.size()) {
+    double average_precision(const std::vector<double>& recall, const std::vector<double>& precision){
+        if (recall.size() != precision.size()){
             throw std::invalid_argument("recall and precision must have the same size.");
         }
 
-        if (recall.empty()) {
+        if (recall.empty()){
             return 0.0;
         }
 
         std::vector<double> precision_envelope = precision;
 
-        for (int index = static_cast<int>(precision_envelope.size()) - 2; index >= 0; --index) {
+        for (int index = static_cast<int>(precision_envelope.size()) - 2; index >= 0; --index){
             precision_envelope[static_cast<std::size_t>(index)] = std::max(precision_envelope[static_cast<std::size_t>(index)], precision_envelope[static_cast<std::size_t>(index + 1)]);
         }
 
         double interpolated_sum = 0.0;
 
-        for (int threshold_index = 0; threshold_index <= 100; ++threshold_index) {
+        for (int threshold_index = 0; threshold_index <= 100; ++threshold_index){
             const double threshold = static_cast<double>(threshold_index) / 100.0;
             double interpolated_precision = 0.0;
 
-            for (std::size_t index = 0; index < recall.size(); ++index) {
+            for (std::size_t index = 0; index < recall.size(); ++index){
                 if (recall[index] >= threshold) {
                     interpolated_precision = std::max(interpolated_precision, precision_envelope[index]);
                 }
@@ -172,8 +172,8 @@ namespace {
 }
 
 // Initializes the segmentation confusion matrix.
-SegmentationEvaluator::SegmentationEvaluator(int num_classes, int ignore_id) : num_classes_(num_classes), ignore_id_(ignore_id) {
-    if (num_classes_ <= 0) {
+SegmentationEvaluator::SegmentationEvaluator(int num_classes, int ignore_id) : num_classes_(num_classes), ignore_id_(ignore_id){
+    if (num_classes_ <= 0){
         throw std::invalid_argument("num_classes must be positive.");
     }
 
@@ -181,17 +181,17 @@ SegmentationEvaluator::SegmentationEvaluator(int num_classes, int ignore_id) : n
 }
 
 // Clears all accumulated segmentation counts.
-void SegmentationEvaluator::reset() {
+void SegmentationEvaluator::reset(){
     confusion_matrix_.assign(static_cast<std::size_t>(num_classes_), std::vector<long long>(static_cast<std::size_t>(num_classes_), 0));
 }
 
 // Updates the confusion matrix with one ground-truth/prediction mask pair.
-void SegmentationEvaluator::update(const cv::Mat& gt_mask, const cv::Mat& pred_mask) {
-    if (gt_mask.empty() || pred_mask.empty() || gt_mask.dims != 2 || pred_mask.dims != 2 || gt_mask.channels() != 1 || pred_mask.channels() != 1) {
+void SegmentationEvaluator::update(const cv::Mat& gt_mask, const cv::Mat& pred_mask){
+    if (gt_mask.empty() || pred_mask.empty() || gt_mask.dims != 2 || pred_mask.dims != 2 || gt_mask.channels() != 1 || pred_mask.channels() != 1){
         throw std::invalid_argument("gt_mask and pred_mask must be non-empty 2D single-channel images.");
     }
 
-    if (gt_mask.rows != pred_mask.rows || gt_mask.cols != pred_mask.cols) {
+    if (gt_mask.rows != pred_mask.rows || gt_mask.cols != pred_mask.cols){
         throw std::invalid_argument("Ground-truth and prediction mask shapes must match.");
     }
 
@@ -201,20 +201,20 @@ void SegmentationEvaluator::update(const cv::Mat& gt_mask, const cv::Mat& pred_m
     gt_mask.convertTo(gt_int, CV_32S);
     pred_mask.convertTo(pred_int, CV_32S);
 
-    for (int row = 0; row < gt_int.rows; ++row) {
-        for (int column = 0; column < gt_int.cols; ++column) {
+    for (int row = 0; row < gt_int.rows; ++row){
+        for (int column = 0; column < gt_int.cols; ++column){
             const int gt_class = gt_int.at<int>(row, column);
             const int pred_class = pred_int.at<int>(row, column);
 
-            if (gt_class == ignore_id_) {
+            if (gt_class == ignore_id_){
                 continue;
             }
 
-            if (gt_class < 0 || gt_class >= num_classes_) {
+            if (gt_class < 0 || gt_class >= num_classes_){
                 throw std::invalid_argument("Ground-truth mask contains invalid class IDs.");
             }
 
-            if (pred_class < 0 || pred_class >= num_classes_) {
+            if (pred_class < 0 || pred_class >= num_classes_){
                 throw std::invalid_argument("Prediction mask contains invalid class IDs.");
             }
 
@@ -224,16 +224,16 @@ void SegmentationEvaluator::update(const cv::Mat& gt_mask, const cv::Mat& pred_m
 }
 
 // Computes IoU independently for every class.
-std::map<int, double> SegmentationEvaluator::per_class_iou() const {
+std::map<int, double> SegmentationEvaluator::per_class_iou() const{
     std::map<int, double> result;
 
-    for (int class_id = 0; class_id < num_classes_; ++class_id) {
+    for (int class_id = 0; class_id < num_classes_; ++class_id){
         const long long true_positive = confusion_matrix_[static_cast<std::size_t>(class_id)][static_cast<std::size_t>(class_id)];
 
         long long predicted_as_class = 0;
         long long ground_truth_class = 0;
 
-        for (int other_class = 0; other_class < num_classes_; ++other_class) {
+        for (int other_class = 0; other_class < num_classes_; ++other_class){
             predicted_as_class += confusion_matrix_[static_cast<std::size_t>(other_class)][static_cast<std::size_t>(class_id)];
             ground_truth_class += confusion_matrix_[static_cast<std::size_t>(class_id)][static_cast<std::size_t>(other_class)];
         }
@@ -242,7 +242,7 @@ std::map<int, double> SegmentationEvaluator::per_class_iou() const {
         const long long false_negative = ground_truth_class - true_positive;
         const long long denominator = true_positive + false_positive + false_negative;
 
-        if (denominator > 0) {
+        if (denominator > 0){
             result[class_id] = static_cast<double>(true_positive) / static_cast<double>(denominator);
         } else {
             result[class_id] = std::numeric_limits<double>::quiet_NaN();
@@ -253,19 +253,19 @@ std::map<int, double> SegmentationEvaluator::per_class_iou() const {
 }
 
 // Computes mean IoU across all valid classes.
-double SegmentationEvaluator::mean_iou() const {
+double SegmentationEvaluator::mean_iou() const{
     return mean_iou(default_cone_class_ids());
 }
 
 // Computes mean IoU over the requested subset of classes.
-double SegmentationEvaluator::mean_iou(const std::vector<int>& class_ids) const {
+double SegmentationEvaluator::mean_iou(const std::vector<int>& class_ids) const{
     const std::map<int, double> iou_per_class = per_class_iou();
     std::vector<double> values;
 
-    for (int class_id : class_ids) {
+    for (int class_id : class_ids){
         const auto iterator = iou_per_class.find(class_id);
 
-        if (iterator != iou_per_class.end() && !std::isnan(iterator->second)) {
+        if (iterator != iou_per_class.end() && !std::isnan(iterator->second)){
             values.push_back(iterator->second);
         }
     }
@@ -274,12 +274,12 @@ double SegmentationEvaluator::mean_iou(const std::vector<int>& class_ids) const 
 }
 
 // Converts numeric class IDs into a report with readable names.
-SegmentationReport SegmentationEvaluator::report() const {
+SegmentationReport SegmentationEvaluator::report() const{
     const std::map<int, double> iou_per_class = per_class_iou();
 
     SegmentationReport result;
 
-    for (const auto& [class_id, iou] : iou_per_class) {
+    for (const auto& [class_id, iou] : iou_per_class){
         result.iou_per_class[class_id_to_name(class_id)] = iou;
     }
 
@@ -288,13 +288,13 @@ SegmentationReport SegmentationEvaluator::report() const {
     return result;
 }
 
-const std::vector<std::vector<long long>>& SegmentationEvaluator::confusion_matrix() const {
+const std::vector<std::vector<long long>>& SegmentationEvaluator::confusion_matrix() const{
     return confusion_matrix_;
 }
 
 // Initializes counters used for macro-averaged classification metrics.
-ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : class_ids_(default_cone_class_ids()), iou_threshold_(iou_threshold) {
-    if (iou_threshold_ < 0.0 || iou_threshold_ > 1.0) {
+ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : class_ids_(default_cone_class_ids()), iou_threshold_(iou_threshold){
+    if (iou_threshold_ < 0.0 || iou_threshold_ > 1.0){
         throw std::invalid_argument("iou_threshold must be in the range [0, 1].");
     }
 
@@ -302,12 +302,12 @@ ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : class_i
 }
 
 // Clears TP, FP and FN counters for every cone class.
-void ClassificationEvaluator::reset() {
+void ClassificationEvaluator::reset(){
     true_positive_.clear();
     false_positive_.clear();
     false_negative_.clear();
 
-    for (int class_id : class_ids_) {
+    for (int class_id : class_ids_){
         true_positive_[class_id] = 0;
         false_positive_[class_id] = 0;
         false_negative_[class_id] = 0;
@@ -315,50 +315,50 @@ void ClassificationEvaluator::reset() {
 }
 
 // Matches boxes by IoU and updates class-wise TP, FP and FN counts.
-void ClassificationEvaluator::update(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes) {
+void ClassificationEvaluator::update(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes){
     const MatchingResult matching = match_by_iou(gt_boxes, pred_boxes, iou_threshold_);
 
-    for (const auto& [gt_index, pred_index] : matching.matches) {
+    for (const auto& [gt_index, pred_index] : matching.matches){
         const int gt_class = gt_boxes[static_cast<std::size_t>(gt_index)].class_id;
         const int pred_class = pred_boxes[static_cast<std::size_t>(pred_index)].class_id;
 
-        if (gt_class == pred_class) {
-            if (contains_class_id(class_ids_, gt_class)) {
+        if (gt_class == pred_class){
+            if (contains_class_id(class_ids_, gt_class)){
                 ++true_positive_[gt_class];
             }
         } else {
-            if (contains_class_id(class_ids_, pred_class)) {
+            if (contains_class_id(class_ids_, pred_class)){
                 ++false_positive_[pred_class];
             }
 
-            if (contains_class_id(class_ids_, gt_class)) {
+            if (contains_class_id(class_ids_, gt_class)){
                 ++false_negative_[gt_class];
             }
         }
     }
 
-    for (int gt_index : matching.unmatched_gt) {
+    for (int gt_index : matching.unmatched_gt){
         const int gt_class = gt_boxes[static_cast<std::size_t>(gt_index)].class_id;
 
-        if (contains_class_id(class_ids_, gt_class)) {
+        if (contains_class_id(class_ids_, gt_class)){
             ++false_negative_[gt_class];
         }
     }
 
-    for (int pred_index : matching.unmatched_pred) {
+    for (int pred_index : matching.unmatched_pred){
         const int pred_class = pred_boxes[static_cast<std::size_t>(pred_index)].class_id;
 
-        if (contains_class_id(class_ids_, pred_class)) {
+        if (contains_class_id(class_ids_, pred_class)){
             ++false_positive_[pred_class];
         }
     }
 }
 
 // Computes precision, recall and F1 for each cone class.
-std::map<int, ClassMetrics> ClassificationEvaluator::per_class_f1() const {
+std::map<int, ClassMetrics> ClassificationEvaluator::per_class_f1() const{
     std::map<int, ClassMetrics> result;
 
-    for (int class_id : class_ids_) {
+    for (int class_id : class_ids_){
         const long long true_positive = true_positive_.at(class_id);
         const long long false_positive = false_positive_.at(class_id);
         const long long false_negative = false_negative_.at(class_id);
@@ -374,11 +374,11 @@ std::map<int, ClassMetrics> ClassificationEvaluator::per_class_f1() const {
 }
 
 // Computes the unweighted mean of the valid class F1 scores.
-double ClassificationEvaluator::macro_f1() const {
+double ClassificationEvaluator::macro_f1() const{
     const std::map<int, ClassMetrics> metrics_per_class = per_class_f1();
     std::vector<double> values;
 
-    for (const auto& [class_id, metrics] : metrics_per_class) {
+    for (const auto& [class_id, metrics] : metrics_per_class){
         static_cast<void>(class_id);
         values.push_back(metrics.f1);
     }
@@ -392,7 +392,7 @@ ClassificationReport ClassificationEvaluator::report() const {
 
     ClassificationReport result;
 
-    for (const auto& [class_id, metrics] : metrics_per_class) {
+    for (const auto& [class_id, metrics] : metrics_per_class){
         const std::string class_name = class_id_to_name(class_id);
 
         result.precision_per_class[class_name] = metrics.precision;
@@ -406,7 +406,7 @@ ClassificationReport ClassificationEvaluator::report() const {
 }
 
 // Initializes the set of cone classes evaluated for detection.
-DetectionEvaluator::DetectionEvaluator() : class_ids_(default_cone_class_ids()) {
+DetectionEvaluator::DetectionEvaluator() : class_ids_(default_cone_class_ids()){
     reset();
 }
 
@@ -418,14 +418,14 @@ void DetectionEvaluator::reset() {
 
 // Stores one image worth of ground truth and predictions.
 void DetectionEvaluator::update(const std::vector<Box>& gt_boxes, const std::vector<Box>& pred_boxes) {
-    for (const Box& box : gt_boxes) {
+    for (const Box& box : gt_boxes){
         if (box.score.has_value()) {
             throw std::invalid_argument("Ground-truth boxes must not have a confidence score.");
         }
     }
 
     for (const Box& box : pred_boxes) {
-        if (!box.score.has_value()) {
+        if (!box.score.has_value()){
             throw std::invalid_argument("Every predicted box must have a confidence score.");
         }
     }
@@ -435,18 +435,18 @@ void DetectionEvaluator::update(const std::vector<Box>& gt_boxes, const std::vec
 }
 
 // Computes AP for one class at a specific IoU threshold.
-double DetectionEvaluator::average_precision_for_class(int class_id, double iou_threshold) const {
+double DetectionEvaluator::average_precision_for_class(int class_id, double iou_threshold) const{
     std::vector<std::vector<Box>> gt_per_image;
 
     gt_per_image.reserve(gt_by_image_.size());
 
     std::size_t num_gt = 0;
 
-    for (const std::vector<Box>& boxes : gt_by_image_) {
+    for (const std::vector<Box>& boxes : gt_by_image_){
         std::vector<Box> filtered_boxes;
 
-        for (const Box& box : boxes) {
-            if (box.class_id == class_id) {
+        for (const Box& box : boxes){
+            if (box.class_id == class_id){
                 filtered_boxes.push_back(box);
             }
         }
@@ -455,7 +455,7 @@ double DetectionEvaluator::average_precision_for_class(int class_id, double iou_
         gt_per_image.push_back(filtered_boxes);
     }
 
-    struct PredictionRecord {
+    struct PredictionRecord{
         double score;
         int image_index;
         int prediction_index;
@@ -464,10 +464,10 @@ double DetectionEvaluator::average_precision_for_class(int class_id, double iou_
 
     std::vector<PredictionRecord> predictions;
 
-    for (std::size_t image_index = 0; image_index < pred_by_image_.size(); ++image_index) {
+    for (std::size_t image_index = 0; image_index < pred_by_image_.size(); ++image_index){
         const std::vector<Box>& boxes = pred_by_image_[image_index];
 
-        for (std::size_t prediction_index = 0; prediction_index < boxes.size(); ++prediction_index) {
+        for (std::size_t prediction_index = 0; prediction_index < boxes.size(); ++prediction_index){
             const Box& box = boxes[prediction_index];
 
             if (box.class_id == class_id) {
@@ -476,15 +476,15 @@ double DetectionEvaluator::average_precision_for_class(int class_id, double iou_
         }
     }
 
-    if (num_gt == 0) {
+    if (num_gt == 0){
         return predictions.empty() ? std::numeric_limits<double>::quiet_NaN() : 0.0;
     }
 
-    if (predictions.empty()) {
+    if (predictions.empty()){
         return 0.0;
     }
 
-    const auto compare_predictions = [](const PredictionRecord& first, const PredictionRecord& second) {
+    const auto compare_predictions = [](const PredictionRecord& first, const PredictionRecord& second){
         if (first.score != second.score) {
             return first.score > second.score;
         }
@@ -502,34 +502,34 @@ double DetectionEvaluator::average_precision_for_class(int class_id, double iou_
 
     gt_used.reserve(gt_per_image.size());
 
-    for (const std::vector<Box>& boxes : gt_per_image) {
+    for (const std::vector<Box>& boxes : gt_per_image){
         gt_used.emplace_back(boxes.size(), false);
     }
 
     std::vector<double> true_positive(predictions.size(), 0.0);
     std::vector<double> false_positive(predictions.size(), 0.0);
 
-    for (std::size_t rank = 0; rank < predictions.size(); ++rank) {
+    for (std::size_t rank = 0; rank < predictions.size(); ++rank){
         const PredictionRecord& prediction = predictions[rank];
         const std::vector<Box>& image_gt = gt_per_image[static_cast<std::size_t>(prediction.image_index)];
 
         double best_iou = -1.0;
         int best_gt_index = -1;
 
-        for (std::size_t gt_index = 0; gt_index < image_gt.size(); ++gt_index) {
-            if (gt_used[static_cast<std::size_t>(prediction.image_index)][gt_index]) {
+        for (std::size_t gt_index = 0; gt_index < image_gt.size(); ++gt_index){
+            if (gt_used[static_cast<std::size_t>(prediction.image_index)][gt_index]){
                 continue;
             }
 
             const double iou = box_iou(image_gt[gt_index], prediction.box);
 
-            if (iou > best_iou) {
+            if (iou > best_iou){
                 best_iou = iou;
                 best_gt_index = static_cast<int>(gt_index);
             }
         }
 
-        if (best_gt_index >= 0 && best_iou >= iou_threshold) {
+        if (best_gt_index >= 0 && best_iou >= iou_threshold){
             gt_used[static_cast<std::size_t>(prediction.image_index)][static_cast<std::size_t>(best_gt_index)] = true;
             true_positive[rank] = 1.0;
         } else {
@@ -543,7 +543,7 @@ double DetectionEvaluator::average_precision_for_class(int class_id, double iou_
     double cumulative_tp = 0.0;
     double cumulative_fp = 0.0;
 
-    for (std::size_t index = 0; index < predictions.size(); ++index) {
+    for (std::size_t index = 0; index < predictions.size(); ++index){
         cumulative_tp += true_positive[index];
         cumulative_fp += false_positive[index];
 
@@ -555,18 +555,18 @@ double DetectionEvaluator::average_precision_for_class(int class_id, double iou_
 }
 
 // Averages AP over IoU thresholds from 0.50 to 0.95 for each class.
-std::map<int, double> DetectionEvaluator::per_class_ap() const {
+std::map<int, double> DetectionEvaluator::per_class_ap() const{
     static const std::array<double, 10> iou_thresholds = {0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95};
 
     std::map<int, double> result;
 
-    for (int class_id : class_ids_) {
+    for (int class_id : class_ids_){
         std::vector<double> finite_values;
 
-        for (double threshold : iou_thresholds) {
+        for (double threshold : iou_thresholds){
             const double value = average_precision_for_class(class_id, threshold);
 
-            if (!std::isnan(value)) {
+            if (!std::isnan(value)){
                 finite_values.push_back(value);
             }
         }
@@ -578,14 +578,14 @@ std::map<int, double> DetectionEvaluator::per_class_ap() const {
 }
 
 // Computes the unweighted mean AP across cone classes.
-double DetectionEvaluator::mean_average_precision() const {
+double DetectionEvaluator::mean_average_precision() const{
     const std::map<int, double> ap_per_class = per_class_ap();
     std::vector<double> finite_values;
 
-    for (const auto& [class_id, value] : ap_per_class) {
+    for (const auto& [class_id, value] : ap_per_class){
         static_cast<void>(class_id);
 
-        if (!std::isnan(value)) {
+        if (!std::isnan(value)){
             finite_values.push_back(value);
         }
     }
@@ -594,12 +594,12 @@ double DetectionEvaluator::mean_average_precision() const {
 }
 
 // Builds the final detection report with readable class names.
-DetectionReport DetectionEvaluator::report() const {
+DetectionReport DetectionEvaluator::report() const{
     const std::map<int, double> ap_per_class = per_class_ap();
 
     DetectionReport result;
 
-    for (const auto& [class_id, ap] : ap_per_class) {
+    for (const auto& [class_id, ap] : ap_per_class){
         result.ap_per_class[class_id_to_name(class_id)] = ap;
     }
 

@@ -24,13 +24,13 @@ constexpr int NUM_CLASSES = 5;
 inline constexpr std::array<int, 4> CONE_CLASS_IDS = {YELLOW_CONE_ID, BLUE_CONE_ID, SMALL_ORANGE_CONE_ID, BIG_ORANGE_CONE_ID};
 
 // Associates each test image with its annotation file.
-struct DatasetPair {
+struct DatasetPair{
     std::filesystem::path image_path;
     std::filesystem::path annotation_path;
 };
 
 // Ground-truth data extracted from an annotation.
-struct GroundTruth {
+struct GroundTruth{
     cv::Mat semantic_mask;
     std::vector<Box> boxes;
 };

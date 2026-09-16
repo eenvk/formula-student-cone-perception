@@ -1,5 +1,5 @@
 #renzi
-"""Evaluation utilities for segmentation, classification, and detection."""
+"""Evaluation utilities for segmentation, classification, and detection"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from dataset.dataset_utils import (
 
 
 class SegmentationEvaluator:
-    """Accumulate a dataset-level pixel confusion matrix and compute IoU."""
+    """Accumulate a dataset-level pixel confusion matrix and compute IoU"""
 
     def __init__(self, num_classes: int = NUM_CLASSES, ignore_id: int = IGNORE_ID) -> None:
         if num_classes <= 0:
@@ -27,12 +27,12 @@ class SegmentationEvaluator:
         self.confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
 
     def reset(self) -> None:
-        """Clear all accumulated samples."""
+        """Clear all accumulated samples"""
 
         self.confusion_matrix.fill(0)
 
     def update(self, gt_mask: np.ndarray, pred_mask: np.ndarray) -> None:
-        """Add one ground-truth/prediction mask pair."""
+        """Add one ground-truth/prediction mask pair"""
 
         if gt_mask.ndim != 2 or pred_mask.ndim != 2:
             raise ValueError("gt_mask and pred_mask must be 2D arrays.")
@@ -55,7 +55,7 @@ class SegmentationEvaluator:
         self.confusion_matrix += counts.reshape(self.num_classes, self.num_classes)
 
     def per_class_iou(self) -> dict[int, float]:
-        """Return dataset-level IoU for every class."""
+        """Return dataset-level IoU for every class"""
 
         result: dict[int, float] = {}
 
@@ -69,14 +69,14 @@ class SegmentationEvaluator:
         return result
 
     def mean_iou(self, class_ids: Sequence[int] = CONE_CLASS_IDS) -> float:
-        """Return the unweighted mean IoU over the requested classes."""
+        """Return the unweighted mean IoU over the requested classes"""
 
         iou_per_class = self.per_class_iou()
         values = [iou_per_class[class_id] for class_id in class_ids if class_id in iou_per_class and not np.isnan(iou_per_class[class_id])]
         return float(np.mean(values)) if values else float("nan")
 
     def report(self) -> dict[str, Any]:
-        """Return named per-class IoU values and cone-class mIoU."""
+        """Return named per-class IoU values and cone-class mIoU"""
 
         iou_per_class = self.per_class_iou()
         return {
@@ -87,7 +87,7 @@ class SegmentationEvaluator:
 
 
 def box_iou(box_a: Box, box_b: Box) -> float:
-    """Compute intersection over union for two half-open xyxy boxes."""
+    """Compute intersection over union for two half-open xyxy boxes"""
 
     x_min = max(box_a.x_min, box_b.x_min)
     y_min = max(box_a.y_min, box_b.y_min)
@@ -99,10 +99,10 @@ def box_iou(box_a: Box, box_b: Box) -> float:
 
 
 def match_by_iou(gt_boxes: Sequence[Box], pred_boxes: Sequence[Box], iou_threshold: float = 0.5) -> tuple[list[tuple[int, int]], list[int], list[int]]:
-    """Greedily match boxes one-to-one by descending IoU, ignoring class."""
+    """Greedily match boxes one-to-one by descending IoU, ignoring class"""
 
     if not 0.0 <= iou_threshold <= 1.0:
-        raise ValueError("iou_threshold must be in the range [0, 1].")
+        raise ValueError("iou_threshold must be in the range [0, 1]")
 
     candidates = []
 
@@ -130,24 +130,24 @@ def match_by_iou(gt_boxes: Sequence[Box], pred_boxes: Sequence[Box], iou_thresho
 
 
 class ClassificationEvaluator:
-    """Compute macro F1 after geometry-only one-to-one box matching."""
+    """Compute macro F1 after geometry-only one-to-one box matching"""
 
     def __init__(self, class_ids: Sequence[int] = CONE_CLASS_IDS, iou_threshold: float = 0.5) -> None:
         if not 0.0 <= iou_threshold <= 1.0:
-            raise ValueError("iou_threshold must be in the range [0, 1].")
+            raise ValueError("iou_threshold must be in the range [0, 1]")
         self.class_ids = tuple(class_ids)
         self.iou_threshold = iou_threshold
         self.reset()
 
     def reset(self) -> None:
-        """Clear all accumulated counts."""
+        """Clear all accumulated counts"""
 
         self.true_positive = {class_id: 0 for class_id in self.class_ids}
         self.false_positive = {class_id: 0 for class_id in self.class_ids}
         self.false_negative = {class_id: 0 for class_id in self.class_ids}
 
     def update(self, gt_boxes: Sequence[Box], pred_boxes: Sequence[Box]) -> None:
-        """Add one image worth of ground truth and predictions."""
+        """Add one image worth of ground truth and predictions"""
 
         matches, unmatched_gt, unmatched_pred = match_by_iou(gt_boxes, pred_boxes, self.iou_threshold)
 
@@ -174,7 +174,7 @@ class ClassificationEvaluator:
                 self.false_positive[pred_class] += 1
 
     def per_class_f1(self) -> dict[int, dict[str, float]]:
-        """Return precision, recall and F1 for every cone class."""
+        """Return precision, recall and F1 for every cone class"""
 
         result: dict[int, dict[str, float]] = {}
 
@@ -211,7 +211,7 @@ class ClassificationEvaluator:
 
 
     def macro_f1(self) -> float:
-        """Return the unweighted mean F1 across cone classes."""
+        """Return the unweighted mean F1 across cone classes"""
 
         values = [
             metrics["f1"]
@@ -222,7 +222,7 @@ class ClassificationEvaluator:
 
 
     def report(self) -> dict[str, Any]:
-        """Return named per-class precision, recall, F1 and macro F1."""
+        """Return named per-class precision, recall, F1 and macro F1"""
 
         metrics_per_class = self.per_class_f1()
 
@@ -246,10 +246,10 @@ class ClassificationEvaluator:
 
 
 def _average_precision(recall: np.ndarray, precision: np.ndarray) -> float:
-    """Compute COCO-style 101-point interpolated average precision."""
+    """Compute coco-style 101-point interpolated average precision"""
 
     if recall.ndim != 1 or precision.ndim != 1 or recall.shape != precision.shape:
-        raise ValueError("recall and precision must be equally sized 1D arrays.")
+        raise ValueError("recall and precision must be equally sized 1D arrays")
     if recall.size == 0:
         return 0.0
 
@@ -265,7 +265,7 @@ def _average_precision(recall: np.ndarray, precision: np.ndarray) -> float:
 
 
 class DetectionEvaluator:
-    """Compute per-class AP and mAP over IoU thresholds 0.50 through 0.95."""
+    """Compute per-class AP and mAP over IoU thresholds 0.50 through 0.95"""
 
     IOU_THRESHOLDS = tuple(float(value) for value in np.round(np.arange(0.50, 1.00, 0.05), 2))
 
@@ -274,18 +274,18 @@ class DetectionEvaluator:
         self.reset()
 
     def reset(self) -> None:
-        """Clear all accumulated images."""
+        """Clear all accumulated images"""
 
         self._gt_by_image: list[list[Box]] = []
         self._pred_by_image: list[list[Box]] = []
 
     def update(self, gt_boxes: Sequence[Box], pred_boxes: Sequence[Box]) -> None:
-        """Add one image worth of ground truth and scored predictions."""
+        """Add one image worth of ground truth and scored predictions"""
 
         if any(box.score is not None for box in gt_boxes):
-            raise ValueError("Ground-truth boxes must not have a confidence score.")
+            raise ValueError("Ground-truth boxes must not have a confidence score")
         if any(box.score is None for box in pred_boxes):
-            raise ValueError("Every predicted box must have a confidence score.")
+            raise ValueError("Every predicted box must have a confidence score")
 
         self._gt_by_image.append(list(gt_boxes))
         self._pred_by_image.append(list(pred_boxes))
@@ -335,7 +335,7 @@ class DetectionEvaluator:
         return _average_precision(recall, precision)
 
     def per_class_ap(self) -> dict[int, float]:
-        """Return AP@0.5:0.95 for every cone class."""
+        """Return ap@0.5:0.95 for every cone class"""
 
         result: dict[int, float] = {}
 
@@ -347,13 +347,13 @@ class DetectionEvaluator:
         return result
 
     def mean_average_precision(self) -> float:
-        """Return the unweighted mean AP across classes present in the ground truth."""
+        """Return the unweighted mean ap across classes present in the ground truth"""
 
         values = [value for value in self.per_class_ap().values() if not np.isnan(value)]
         return float(np.mean(values)) if values else float("nan")
 
     def report(self) -> dict[str, Any]:
-        """Return named per-class AP values and mAP@0.5:0.95."""
+        """Return named per-class ap values and map@0.5:0.95"""
 
         ap_per_class = self.per_class_ap()
         return {
@@ -364,14 +364,14 @@ class DetectionEvaluator:
 
 
 
-# COCO-style area ranges (in px^2), used for AP_small / AP_medium / AP_large.
+# COCO-style area ranges (in px^2), used for AP_small / AP_medium / AP_large
 OBJECT_SIZE_RANGES: tuple[tuple[str, float, float], ...] = (
     ("small", 0.0, 32.0 ** 2),
     ("medium", 32.0 ** 2, 96.0 ** 2),
     ("large", 96.0 ** 2, float("inf")),
 )
 
-# Pixel-height bins for the fine-grained "how far can we see a cone" analysis.
+# Pixel-height bins for the fine-grained "how far can we see a cone" analysis
 HEIGHT_BINS_PX: tuple[tuple[float, float], ...] = (
     (0.0, 16.0),
     (16.0, 32.0),
@@ -381,7 +381,7 @@ HEIGHT_BINS_PX: tuple[tuple[float, float], ...] = (
 
 
 def _mean_ignoring_nan(values: Sequence[float]) -> float:
-    """Return the mean of the finite values, or NaN if none are finite."""
+    """Return the mean of the finite values, or NaN if none are finite"""
 
     finite_values = [value for value in values if not np.isnan(value)]
     return float(np.mean(finite_values)) if finite_values else float("nan")
@@ -390,21 +390,21 @@ def _mean_ignoring_nan(values: Sequence[float]) -> float:
 class ComprehensiveDetectionEvaluator(DetectionEvaluator):
     """Extend DetectionEvaluator with global metrics, a full per-class table,
     and breakdowns by object size and pixel height. Accumulation is
-    inherited unchanged from DetectionEvaluator.update()."""
+    inherited unchanged from DetectionEvaluator.update()"""
 
     def average_precision_at(self, iou_threshold: float) -> dict[int, float]:
-        """Return per-class AP at a single IoU threshold (e.g. 0.50 or 0.75)."""
+        """Return per-class AP at a single IoU threshold (e.g. 0.50 or 0.75)"""
 
         return {class_id: self._average_precision_for_class(class_id, iou_threshold) for class_id in self.class_ids}
 
     def mean_ap_at(self, iou_threshold: float) -> float:
-        """Return mAP across classes at a single IoU threshold."""
+        """Return mAP across classes at a single IoU threshold"""
 
         return _mean_ignoring_nan(list(self.average_precision_at(iou_threshold).values()))
 
     def global_precision_recall_f1(self, iou_threshold: float = 0.5) -> dict[str, float]:
-        """Return class-agnostic Precision/Recall/F1: 'is something detected at
-        this location at all', ignoring whether the predicted class is right."""
+        """Return class-agnostic precision/recall/F1: 'is something detected at
+        this location at all', ignoring whether the predicted class is right"""
 
         true_positive = false_positive = false_negative = 0
 
@@ -420,7 +420,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
         return {"precision": precision, "recall": recall, "f1": f1}
 
     def global_summary(self, iou_threshold: float = 0.5) -> dict[str, float]:
-        """Global mAP@50, mAP@75, mAP@50:95, plus Precision/Recall/F1."""
+        """Global mAP@50, mAP@75, mAP@50:95, plus Precision/Recall/F1"""
 
         precision_recall_f1 = self.global_precision_recall_f1(iou_threshold)
         return {
@@ -434,7 +434,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
 
     def per_class_precision_recall_f1(self, iou_threshold: float = 0.5) -> dict[int, dict[str, float]]:
         """Per-class Precision/Recall/F1: gt and predictions are first filtered
-        to the same class, then matched geometrically."""
+        to the same class, then matched geometrically"""
 
         result: dict[int, dict[str, float]] = {}
 
@@ -457,7 +457,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
         return result
 
     def per_class_summary(self, iou_threshold: float = 0.5) -> dict[str, dict[str, float]]:
-        """Per-class table with AP@50, AP@75, AP@50:95, Precision, Recall and F1."""
+        """Per-class table with AP@50, AP@75, AP@50:95, Precision, Recall and F1"""
 
         ap50 = self.average_precision_at(0.50)
         ap75 = self.average_precision_at(0.75)
@@ -483,7 +483,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
         """AP restricted to ground-truth boxes whose area falls in area_range.
         Ground-truth boxes of the same class outside the range are neither
         counted as false negatives nor do predictions matched to them count
-        as false positives (COCO-style 'ignore' region)."""
+        as false positives (COCO-style 'ignore' region)"""
 
         lo, hi = area_range
         gt_in_range_per_image: list[list[Box]] = []
@@ -548,7 +548,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
 
     def ap_by_size(self, size_ranges: Sequence[tuple[str, float, float]] = OBJECT_SIZE_RANGES) -> dict[str, float]:
         """AP_small / AP_medium / AP_large, i.e. AP@0.5:0.95 averaged
-        over classes, restricted to ground-truth boxes of each area range."""
+        over classes, restricted to ground-truth boxes of each area range"""
 
         result: dict[str, float] = {}
         for size_name, lo, hi in size_ranges:
@@ -564,7 +564,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
             self, size_ranges: Sequence[tuple[str, float, float]] = OBJECT_SIZE_RANGES, iou_threshold: float = 0.5
     ) -> dict[str, float]:
         """Recall_small / Recall_medium / Recall_large at a fixed IoU
-        threshold, pooled class-agnostically across all cone classes."""
+        threshold, pooled class-agnostically across all cone classes"""
 
         result: dict[str, float] = {}
         for size_name, lo, hi in size_ranges:
@@ -584,7 +584,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
         """Recall/detection-rate as a function of the real bounding-box
         height in pixels, pooled class-agnostically across all cone classes.
         Reveals thresholds like 'detection collapses below N px', which maps
-        directly to cone distance."""
+        directly to cone distance"""
 
         result: dict[str, float] = {}
         for lo, hi in height_bins:
@@ -603,7 +603,7 @@ class ComprehensiveDetectionEvaluator(DetectionEvaluator):
         return result
 
     def full_report(self, iou_threshold: float = 0.5) -> dict[str, Any]:
-        """Combine the global, per-class, size and height breakdowns above into a single report dict."""
+        """Combine the global, per-class, size and height breakdowns above into a single report dict"""
 
         return {
             "global": self.global_summary(iou_threshold),
@@ -624,7 +624,7 @@ class QualitativeErrorSampler:
 
     `image` can be anything accepted by matplotlib's imshow (e.g. an HxWx3
     numpy array). Box overlays require x_min/y_min/x_max/y_max, class_id,
-    area and (for predictions) score on each Box.
+    area and (for predictions) score on each Box
     """
 
     def __init__(self, iou_threshold: float = 0.5, small_area_threshold: float = 32.0 ** 2) -> None:
@@ -633,12 +633,12 @@ class QualitativeErrorSampler:
         self._records: list[dict[str, Any]] = []
 
     def reset(self) -> None:
-        """Clear all accumulated images."""
+        """Clear all accumulated images"""
 
         self._records = []
 
     def add_image(self, image_id: Any, image: Any, gt_boxes: Sequence[Box], pred_boxes: Sequence[Box]) -> None:
-        """Add one image worth of ground truth, predictions, and the raw image."""
+        """Add one image worth of ground truth, predictions, and the raw image"""
 
         matches, unmatched_gt, unmatched_pred = match_by_iou(gt_boxes, pred_boxes, self.iou_threshold)
         correct_matches = [(g, p) for g, p in matches if gt_boxes[g].class_id == pred_boxes[p].class_id]
@@ -654,8 +654,7 @@ class QualitativeErrorSampler:
                 if box_iou(gt_boxes_list[i], gt_boxes_list[j]) > 0.1:
                     occlusion_pairs += 1
 
-        self._records.append({
-            "image_id": image_id,
+        self._records.append({"image_id": image_id,
             "image": image,
             "gt_boxes": gt_boxes,
             "pred_boxes": pred_boxes,
@@ -699,7 +698,7 @@ class QualitativeErrorSampler:
 
     def render(self, record: dict[str, Any], output_path: str) -> None:
         """Draw ground-truth (green, solid) and predicted (red, dashed) boxes
-        with class name + confidence, and save the overlay to output_path."""
+        with class name + confidence, and save the overlay to output_path"""
 
         import matplotlib.patches as patches
         import matplotlib.pyplot as plt

@@ -12,20 +12,20 @@
 #include <opencv2/core.hpp>
 
 // Summary of segmentation metrics.
-struct SegmentationReport {
+struct SegmentationReport{
     std::map<std::string, double> iou_per_class;
     double mean_iou;
 };
 
 // Precision, recall and F1 values for a single class.
-struct ClassMetrics {
+struct ClassMetrics{
     double precision;
     double recall;
     double f1;
 };
 
 // Summary of classification metrics.
-struct ClassificationReport {
+struct ClassificationReport{
     std::map<std::string, double> precision_per_class;
     std::map<std::string, double> recall_per_class;
     std::map<std::string, double> f1_per_class;
@@ -33,13 +33,13 @@ struct ClassificationReport {
 };
 
 // Summary of object-detection metrics.
-struct DetectionReport {
+struct DetectionReport{
     std::map<std::string, double> ap_per_class;
     double mean_average_precision;
 };
 
 // Accumulates a confusion matrix and computes IoU-based metrics.
-class SegmentationEvaluator {
+class SegmentationEvaluator{
 public:
     explicit SegmentationEvaluator(int num_classes = 5, int ignore_id = 255);
 
@@ -58,7 +58,7 @@ private:
 };
 
 // Matches predicted and ground-truth boxes to compute classification metrics.
-class ClassificationEvaluator {
+class ClassificationEvaluator{
 public:
     explicit ClassificationEvaluator(double iou_threshold = 0.5);
 
@@ -77,7 +77,7 @@ private:
 };
 
 // Stores detections across images and computes mAP@0.5:0.95.
-class DetectionEvaluator {
+class DetectionEvaluator{
 public:
     DetectionEvaluator();
 
