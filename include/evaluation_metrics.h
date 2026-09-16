@@ -49,7 +49,6 @@ public:
     double mean_iou() const;
     double mean_iou(const std::vector<int>& class_ids) const;
     SegmentationReport report() const;
-    const std::vector<std::vector<long long>>& confusion_matrix() const;
 
 private:
     int num_classes_;

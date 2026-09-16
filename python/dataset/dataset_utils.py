@@ -83,16 +83,6 @@ DETECTION_ID_TO_NAME = { 0: "yellow_cone", 1: "blue_cone", 2: "small_orange_cone
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
-MASK_COLORS = {
-    BACKGROUND_ID: (0, 0, 0),
-    YELLOW_CONE_ID: (255, 255, 0),
-    BLUE_CONE_ID: (0, 0, 255),
-    SMALL_ORANGE_CONE_ID: (255, 165, 0),
-    BIG_ORANGE_CONE_ID: (255, 0, 255),
-    IGNORE_ID: (255, 255, 255),
-}
-
-
 @dataclass(frozen=True)
 class Box:
     """Bounding box using half-open xyxy coordinates: [x_min, x_max) x [y_min, y_max)"""
@@ -307,11 +297,6 @@ def get_segmentation_train_pairs() -> list[tuple[Path, Path]]:
     return find_all_dataset_pairs(SEGMENTATION_TRAIN_ROOT)
 
 
-def get_segmentation_test_pairs() -> list[tuple[Path, Path]]:
-    """Return pairs from dataset/segmentation_test"""
-    return find_dataset_pairs(SEGMENTATION_TEST_IMAGE_DIR, SEGMENTATION_TEST_ANNOTATION_DIR)
-
-
 def train_validation_split(pairs: Sequence[tuple[Path, Path]], validation_fraction: float = 0.20, seed: int = 42) -> tuple[list[tuple[Path, Path]], list[tuple[Path, Path]]]:
     """Create a deterministic train/validation split without mutating the input"""
 
@@ -393,27 +378,6 @@ def bitmap_object_to_full_mask(obj: dict[str, Any], image_height: int, image_wid
 
     return full_mask
 
-
-def annotation_to_semantic_mask(annotation_path: str | Path, image_height: int, image_width: int) -> np.ndarray:
-    """Convert one Supervisely annotation to a five-class semantic mask"""
-
-    _validate_image_size(image_height, image_width)
-    annotation = load_annotation(annotation_path)
-    semantic_mask = np.zeros((image_height, image_width), dtype=np.uint8)
-
-    for obj in annotation.get("objects", []):
-        if not isinstance(obj, dict) or obj.get("geometryType") != "bitmap":
-            continue
-
-        class_name = obj.get("classTitle")
-
-        if class_name is None:
-            continue
-
-        class_id = class_name_to_id(class_name)
-        semantic_mask[bitmap_object_to_full_mask(obj, image_height, image_width)] = class_id
-
-    return semantic_mask
 
 
 def binary_mask_to_bbox(binary_mask: np.ndarray) -> tuple[int, int, int, int] | None:
@@ -504,27 +468,6 @@ def annotation_to_instances(annotation_path: str | Path, image_height: int, imag
     return instances
 
 
-def annotation_to_bboxes(annotation_path: str | Path, image_height: int, image_width: int, bitmap_only: bool = False) -> list[dict[str, Any]]:
-    """Extract serializable bounding boxes with shared and detection class ids"""
-
-    boxes = annotation_to_instances(annotation_path, image_height, image_width, bitmap_only=bitmap_only)
-
-    return [
-        {
-            "class_name": CLASS_ID_TO_NAME[box.class_id], "segmentation_class_id": box.class_id,
-            "detection_class_id": segmentation_id_to_detection_id(box.class_id),
-            "bbox_xyxy": [box.x_min, box.y_min, box.x_max, box.y_max],
-        }
-        for box in boxes
-    ]
-
-
-def annotation_to_bboxes_from_masks(annotation_path: str | Path, image_height: int, image_width: int) -> list[dict[str, Any]]:
-    """Derive one tight bounding box per bitmap instance for test evaluation"""
-
-    return annotation_to_bboxes(annotation_path, image_height, image_width, bitmap_only=True)
-
-
 def annotation_to_segmentation_instances(annotation_path: str | Path, image_height: int, image_width: int) -> list[SegmentationInstance]:
     """Extract cone instances with their individual binary masks and bounding boxes"""
 
@@ -560,64 +503,7 @@ def annotation_to_segmentation_instances(annotation_path: str | Path, image_heig
 
     return instances
 
-
-def generate_bbox_ground_truth_from_segmentation(dataset_root: str | Path = SEGMENTATION_TEST_ROOT, output_json_path: str | Path | None = None) -> dict[str, Any]:
-    """Generate detection ground truth from all test-set bitmap annotations"""
-
-    pairs = find_all_dataset_pairs(dataset_root)
-    ground_truth: dict[str, Any] = {"classes": DETECTION_ID_TO_NAME, "images": []}
-
-    for image_path, annotation_path in pairs:
-        image = load_image(image_path)
-        image_height, image_width = image.shape[:2]
-        boxes = annotation_to_bboxes_from_masks(annotation_path, image_height, image_width)
-        ground_truth["images"].append({"image_name": image_path.name, "width": image_width, "height": image_height, "objects": boxes})
-
-    if output_json_path is not None:
-        output_json_path = Path(output_json_path)
-        output_json_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_json_path.open("w", encoding="utf-8") as file:
-            json.dump(ground_truth, file, indent=2)
-
-    return ground_truth
-
-
-#shared preprocessing and validation
-def resize_image(image: np.ndarray, width: int, height: int) -> np.ndarray:
-    """Resize an image with bilinear interpolation"""
-
-    _validate_image_array(image)
-    _validate_image_size(height, width)
-    return cv2.resize(image, (width, height), interpolation=cv2.INTER_LINEAR)
-
-
-def resize_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:
-    """Resize a class mask with nearest-neighbor interpolation"""
-
-    if mask.ndim != 2:
-        raise ValueError("mask must be a 2D array")
-    _validate_image_size(height, width)
-    return cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
-
-
-def normalize_image(image: np.ndarray) -> np.ndarray:
-    """Convert an integer image to float32 values in the [0, 1] range"""
-
-    _validate_image_array(image)
-
-    if np.issubdtype(image.dtype, np.floating):
-        minimum = float(np.min(image))
-        maximum = float(np.max(image))
-        if minimum < 0.0 or maximum > 1.0:
-            raise ValueError("Floating-point images must already be in the range [0, 1]")
-        return image.astype(np.float32, copy=False)
-
-    if not np.issubdtype(image.dtype, np.integer):
-        raise TypeError(f"Unsupported image dtype: {image.dtype}")
-
-    maximum_value = np.iinfo(image.dtype).max
-    return image.astype(np.float32) / float(maximum_value)
-
+#validation helpers
 
 def validate_dataset_pairs(pairs: Sequence[tuple[Path, Path]]) -> None:
     """Check that every image and JSON annotation can be loaded"""
@@ -627,99 +513,8 @@ def validate_dataset_pairs(pairs: Sequence[tuple[Path, Path]]) -> None:
         load_annotation(annotation_path)
 
 
-def validate_segmentation_dataset(pairs: Sequence[tuple[Path, Path]]) -> None:
-    """Validate segmentation masks and their class ids"""
-
-    validate_dataset_pairs(pairs)
-
-    for image_path, annotation_path in pairs:
-        image = load_image(image_path)
-        image_height, image_width = image.shape[:2]
-        mask = annotation_to_semantic_mask(annotation_path, image_height, image_width)
-
-        if mask.shape != (image_height, image_width):
-            raise ValueError(f"Shape mismatch for {image_path.name}: {mask.shape}")
-
-        invalid_ids = [int(class_id) for class_id in np.unique(mask) if class_id != IGNORE_ID and not 0 <= class_id < NUM_CLASSES]
-
-        if invalid_ids:
-            raise ValueError(f"Invalid class ids {invalid_ids} in {annotation_path}")
-
-
-def validate_detection_dataset(pairs: Sequence[tuple[Path, Path]], bitmap_only: bool = False) -> None:
-    """Validate detection annotations and extracted boxes"""
-
-    validate_dataset_pairs(pairs)
-
-    for image_path, annotation_path in pairs:
-        image_height, image_width = load_image(image_path).shape[:2]
-        annotation_to_instances(annotation_path, image_height, image_width, bitmap_only=bitmap_only)
-
-
-def validate_dataset(pairs: Sequence[tuple[Path, Path]]) -> None:
-    """Backward-compatible alias for segmentation dataset validation"""
-
-    validate_segmentation_dataset(pairs)
-
-
-def validate_project_dataset() -> None:
-    """Validate the three dataset branches required by the project"""
-
-    validate_detection_dataset(get_bounding_boxes_train_pairs())
-    validate_segmentation_dataset(get_segmentation_train_pairs())
-    validate_segmentation_dataset(get_segmentation_test_pairs())
-
-
-def colorize_mask(mask: np.ndarray) -> np.ndarray:
-    """Convert a semantic mask into a rgb image"""
-
-    if mask.ndim != 2:
-        raise ValueError("mask must be a 2D array")
-
-    unknown_ids = set(int(value) for value in np.unique(mask)) - set(MASK_COLORS)
-
-    if unknown_ids:
-        raise ValueError(f"Mask contains unknown class ids: {sorted(unknown_ids)}")
-
-    color_mask = np.zeros((*mask.shape, 3), dtype=np.uint8)
-
-    for class_id, color in MASK_COLORS.items():
-        color_mask[mask == class_id] = color
-
-    return color_mask
-
-
-def create_overlay(image_bgr: np.ndarray, mask: np.ndarray, alpha: float = 0.45) -> np.ndarray:
-    """Overlay non-background semantic labels on a bgr image"""
-
-    _validate_image_array(image_bgr)
-
-    if not 0.0 <= alpha <= 1.0:
-        raise ValueError("alpha must be in the range [0, 1]")
-    if image_bgr.shape[:2] != mask.shape:
-        raise ValueError(f"Shape mismatch: image={image_bgr.shape[:2]}, mask={mask.shape}")
-
-    color_mask_bgr = cv2.cvtColor(colorize_mask(mask), cv2.COLOR_RGB2BGR)
-    blended = cv2.addWeighted(image_bgr, 1.0 - alpha, color_mask_bgr, alpha, 0.0)
-    overlay = image_bgr.copy()
-    annotated_pixels = mask != BACKGROUND_ID
-    overlay[annotated_pixels] = blended[annotated_pixels]
-
-    return overlay
-
-
-#internal validation helpers
 def _validate_image_size(image_height: int, image_width: int) -> None:
     if not isinstance(image_height, int) or not isinstance(image_width, int):
         raise TypeError("image_height and image_width must be integers")
     if image_height <= 0 or image_width <= 0:
         raise ValueError("image_height and image_width must be positive")
-
-
-def _validate_image_array(image: np.ndarray) -> None:
-    if not isinstance(image, np.ndarray):
-        raise TypeError("image must be a NumPy array")
-    if image.ndim not in (2, 3):
-        raise ValueError("image must be a 2D or 3D array")
-    if image.size == 0:
-        raise ValueError("image must not be empty")

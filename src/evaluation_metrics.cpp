@@ -288,10 +288,6 @@ SegmentationReport SegmentationEvaluator::report() const{
     return result;
 }
 
-const std::vector<std::vector<long long>>& SegmentationEvaluator::confusion_matrix() const{
-    return confusion_matrix_;
-}
-
 // Initializes counters used for macro-averaged classification metrics.
 ClassificationEvaluator::ClassificationEvaluator(double iou_threshold) : class_ids_(default_cone_class_ids()), iou_threshold_(iou_threshold){
     if (iou_threshold_ < 0.0 || iou_threshold_ > 1.0){
