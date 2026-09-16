@@ -1,17 +1,13 @@
 #Granati
 
 import tensorflow as tf
-import keras_cv
-import cv2
 import numpy as np
-import random
 
 from dataset.dataset_utils import (
     get_bounding_boxes_train_pairs,
     train_validation_split,
     annotation_to_instances,
     segmentation_id_to_detection_id,
-    load_image,
     load_annotation
 )
 
@@ -23,7 +19,6 @@ from detection.detection_config import (
     SEED,
     SPLIT_RATIO,
     PATCH_BATCH_SIZE,
-    PATCH_STRIDE,
     MIN_RETAINED_AREA,
     NUM_NEGATIVE_CROP_ATTEMPTS
 )
@@ -183,17 +178,11 @@ def prepare_dataset_data(pairs):
 def load_image(image_path):
     """
     Loads an image file and decodes it into a tensor.
-    
-    Reads an image from disk and decodes it into a 3-channel
-    RGB tensor. Automatically detects the image format based on file extension.
-
     Returns:
         tf.Tensor: Decoded image tensor with shape [height, width, 3]
     """
     image_bytes = tf.io.read_file(image_path)
 
-    # decode_image automatically handles common image formats
-    # such as JPEG, PNG and BMP.
     image = tf.io.decode_image(
         image_bytes,
         channels=3,
@@ -334,8 +323,7 @@ def positive_crop(image_path, classes, bbox):
             }
         }
 
-    return tf.cond(
-        tf.logical_and(can_crop, n_valid > 0),
+    return tf.cond(tf.logical_and(can_crop, n_valid > 0),
         make_positive_crop,
         fallback
     )
@@ -440,8 +428,7 @@ def negative_crop(image_path, classes, bbox):
         # if there are valid negative crops, use one; otherwise, fall back to loading the full image.
         return tf.cond(n_valid > 0,
                        use_negative_crop,
-                       fallback
-                       )
+                       fallback)
 
     def fallback():
         return load_dataset(image_path, classes, bbox)
@@ -449,8 +436,7 @@ def negative_crop(image_path, classes, bbox):
     # if the image is large enough to crop, attempt to create a negative crop; otherwise, load the full image.
     return tf.cond(can_crop,
                    make_negative_crop,
-                   fallback
-                   )
+                   fallback)
 
 @tf.function
 def load_train_dataset(image_path, classes, bbox):
@@ -615,15 +601,9 @@ def create_inference_views(image_path):
         tf.Tensor: A tensor containing the combined views of the image, each resized to IMAGE_SIZE.
     """
     image = load_image(image_path)
-
     views = create_combined_views(image)
 
-    views.set_shape([
-        None,
-        IMAGE_SIZE[0],
-        IMAGE_SIZE[1],
-        3,
-    ])
+    views.set_shape([None, IMAGE_SIZE[0], IMAGE_SIZE[1], 3])
 
     return views
 
@@ -824,19 +804,6 @@ def select_inference_subset_indices(num_images, ratio=0.2):
 
     return shuffled_indices[:num_selected]
 
-
-
-def get_patch_starts(image_size, patch_size, stride):
-    """
-    Computes the starting positions for patches along a single dimension (height or width) of an image
-    """
-    del stride
-
-    if image_size <= patch_size:
-        return []
-
-    return [0, image_size - patch_size]
-
 def resize_with_letterbox(image, target_size):
     """
     Resize an image to a target size while preserving aspect ratio and adding letterbox padding.
@@ -916,8 +883,7 @@ def create_combined_views(image):
         patches = create_patches(image, IMAGE_SIZE)
         return tf.concat([patches, full_image], axis=0)
 
-    return tf.cond(
-        tf.logical_and(image_height > patch_height, image_width > patch_width),
+    return tf.cond(tf.logical_and(image_height > patch_height, image_width > patch_width),
         patches_and_full_image,
         full_image_only
     )
@@ -982,8 +948,7 @@ def create_patches(image, patch_size=IMAGE_SIZE):
 
         return tf.stack(patches)
 
-    return tf.cond(
-        use_native_patches,
+    return tf.cond(use_native_patches,
         native_patches,
         quadrant_patches
     )

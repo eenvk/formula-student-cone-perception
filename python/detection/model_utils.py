@@ -4,24 +4,11 @@ from pathlib import Path
 
 import tensorflow as tf
 from tensorflow import keras
-
 import keras_cv
-from keras_cv import bounding_box
-from keras_cv import visualization
 
-from detection.detection_config import (
-    GLOBAL_CLIPNORM,
-    LEARNING_RATE,
-    NUM_CLASSES,
-)
-
+from detection.detection_config import GLOBAL_CLIPNORM, LEARNING_RATE, NUM_CLASSES
 from detection.inference import predict_inference_dataset
-
-from evaluation.evaluation_utils import (
-    DetectionEvaluator,
-    ClassificationEvaluator
-)
-
+from evaluation.evaluation_utils import  DetectionEvaluator, ClassificationEvaluator
 from dataset.dataset_utils import ground_truth_to_box
 from detection.decoder import create_yolo_inference
 

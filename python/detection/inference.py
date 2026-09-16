@@ -1,43 +1,22 @@
 #Granati
 
 import numpy as np
-import tensorflow as tf
 
-from dataset.dataset_utils import (
-    Box,
-    DETECTION_ID_TO_NAME,
-    prediction_to_box,
-)
+from dataset.dataset_utils import Box, DETECTION_ID_TO_NAME, prediction_to_box
+from detection.detection_config import (CONFIDENCE_THRESHOLD, GLOBAL_NMS_IOU_THRESHOLD, GLOBAL_CONTAINMENT_THRESHOLD, PATCH_BORDER_MARGIN,
+                                        GLOBAL_CROSS_CONTAINMENT_THRESHOLD)
 
-from detection.detection_config import (
-    CONFIDENCE_THRESHOLD,
-    GLOBAL_NMS_IOU_THRESHOLD,
-    GLOBAL_CONTAINMENT_THRESHOLD,
-    PATCH_BORDER_MARGIN,
-    GLOBAL_CROSS_CONTAINMENT_THRESHOLD
-)
-
-# def predict_inference_dataset(model, inference_ds, metadata) -> list[list[Box]]:
-def predict_inference_dataset(infer, inference_ds, metadata, verbose=True) -> list[list[Box]]:
+def predict_inference_dataset(infer, inference_ds, metadata) -> list[list[Box]]:
     outputs = {}
-    cardinality = tf.data.experimental.cardinality(inference_ds)
-    number_of_batches = int(cardinality.numpy())
 
-    progress_bar = None
-    if verbose and number_of_batches >= 0:
-        progress_bar = tf.keras.utils.Progbar(
-            target=number_of_batches,
-            unit_name="batch",
-        )
-
-    for batch_number, images in enumerate(inference_ds, start=1):
+    for images in inference_ds:
         batch_predictions = infer(images)
 
         for name, values in batch_predictions.items():
-            outputs.setdefault(name, []).append(values)
+            if name not in outputs:
+                outputs[name] = []
 
-        if progress_bar is not None:
-            progress_bar.update(batch_number)
+            outputs[name].append(values)
 
     if not outputs:
         raise ValueError("Inference dataset is empty.")
@@ -53,20 +32,12 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
     """
     Convert raw predictions from patch and full-image views into final
     detections grouped by original image.
-
-    The function maps predictions back to original-image coordinates,
-    applies patch-aware and final NMS, and returns one list of Box objects
-    for each original image.
-
-    Args:
-        raw_predictions: Model predictions for all inference views.
-        metadata: Metadata associated with each inference view.
+    The function maps predictions back to original-image coordinates, applies patch-aware and final NMS,
+    and returns one list of Box objects
+    for each original image
 
     Returns:
-        list[list[Box]]: Final detections grouped by original image.
-
-    Raises:
-        ValueError: If predictions and metadata have different lengths.
+        list: final detections grouped by original image.
     """
     if not metadata:
         return []
@@ -123,9 +94,7 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
         image_width = image_metadata["image_width"]
         image_height = image_metadata["image_height"]
 
-        # first i elimante duplicates between patches...
         image_patch_predictions = global_nms_patch_aware(patch_predictions[image_index], image_width, image_height)
-        # ...then between the upper result and the full_image
         image_final_predictions = final_nms(image_patch_predictions, full_predictions[image_index])
 
         final_predictions.append([
@@ -138,8 +107,7 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
 
 # Box Geometry
 def compute_areas_and_intersection(box_a, box_b):
-    """
-    Compute the areas of two xyxy bounding boxes and their intersection area."""
+    """Compute the areas of two xyxy bounding boxes and their intersection area"""
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
 
@@ -173,8 +141,7 @@ def calculate_iou(box_a, box_b):
 
 def calculate_containment(box_a, box_b):
     """
-    Compute how much of the smaller box is contained
-    inside the other box.
+    Compute how much of the smaller box is contained inside the other box.
     """
 
     intersection_area, area_a, area_b = compute_areas_and_intersection(box_a, box_b)
@@ -192,7 +159,7 @@ def is_near_internal_patch_border(prediction, image_width, image_height, margin=
     local_bbox is stored directly in source-patch coordinates, so the same
     logic works for native patches and letterboxed quadrants.
 
-    Returns True if the detection is near an internal patch border, False otherwise.
+    Returns true if the detection is near an internal patch border, false otherwise.
     """
 
     x_min, y_min, x_max, y_max = prediction["local_bbox"]
@@ -220,7 +187,6 @@ def is_near_internal_patch_border(prediction, image_width, image_height, margin=
 def is_near_box(box_a, box_b, expansion_factor=0.30):
     """
     Check whether box_b is close to box_a.
-
     box_a is expanded by a fraction of its width/height.
     Useful for detecting border fragments that may have
     little or no IoU with the main detection.
@@ -283,11 +249,9 @@ def global_nms_patch_aware(predictions, image_width, image_height):
 
         best = predictions.pop(0)
         selected.append(best)
-
         remaining = []
 
         best_near_border = is_near_internal_patch_border(best, image_width, image_height)
-
 
         for prediction in predictions:
             prediction_near_border = is_near_internal_patch_border(prediction, image_width, image_height)
@@ -305,17 +269,13 @@ def global_nms_patch_aware(predictions, image_width, image_height):
                     remaining.append(prediction)
                     continue
 
-            # --------------------------------------------------
             # SPECIAL CASE:
             # same class, different patch
-            #
             # best is a reliable non-border detection,
             # prediction is a border fragment close to best.
-            # --------------------------------------------------
             if (not best_near_border and prediction_near_border and is_near_box(best["bbox"], prediction["bbox"])):
                 # Suppress border fragment
                 continue
-
 
             # Cross-patch duplicate detection
             iou = calculate_iou(best["bbox"], prediction["bbox"])
@@ -329,9 +289,7 @@ def global_nms_patch_aware(predictions, image_width, image_height):
     return selected
 
 def clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max):
-    """
-    Clip bounding box coordinates to be within the image dimensions.
-    """
+    """Clip bounding box coordinates to be within the image dimensions"""
     x_min = max(0.0, min(x_min, image_width))
     y_min = max(0.0, min(y_min, image_height))
     x_max = max(0.0, min(x_max, image_width))
@@ -341,12 +299,7 @@ def clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max):
 
 def final_nms(patch_predictions, total_predictions):
     """
-    Resolve patch-vs-total duplicates using greedy NMS.
-    Patch-vs-patch conflicts have already been handled by
-    global_nms_patch_aware().
-    Total-vs-total conflicts have already been handled by
-    the model decoder.
-    Therefore only cross-source conflicts are considered.
+    Resolve patch-vs-total duplicates using greedy NMS
 
     Returns:
         list: Final predictions after NMS.
@@ -361,14 +314,12 @@ def final_nms(patch_predictions, total_predictions):
         candidates.append((prediction, "total"))
 
     candidates.sort(key=lambda x: x[0]["score"], reverse=True)
-
     selected = []
 
     for prediction, source in candidates:
         suppress = False
 
         for selected_prediction, selected_source in selected:
-
             # Patch-vs-patch and total-vs-total
             # have already been handled before.
             if source == selected_source:
@@ -495,7 +446,8 @@ def process_full_view(predictions, index, metadata, image_width, image_height):
     Convert predictions from a full-image view into original-image coordinates.
     
     Returns:
-        list of dicts: Each dict contains metadata and coordinates for a detection in the original image"""
+        list of dicts: Each dict contains metadata and coordinates for a detection in the original image
+    """
     result = []
 
     # Extract letterbox parameters
