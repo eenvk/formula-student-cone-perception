@@ -81,3 +81,9 @@ NUM_NEGATIVE_CROP_ATTEMPTS = 20
 
 #Evaluation
 RUN_MODEL_INFERENCE = True
+
+#yolo hyperparameters
+yolo_SCORE_THRESHOLD = 0.20
+yolo_PRE_NMS_TOP_K = 400
+yolo_NMS_IOU_THRESHOLD = 0.70
+yolo_NMS_MAX_DETECTIONS = 100

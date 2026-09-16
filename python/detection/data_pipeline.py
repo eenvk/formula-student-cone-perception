@@ -90,7 +90,7 @@ def build_train_val_datasets():
     val_loss_ds = build_val_loss_dataset(val_data)
 
     # 6. select a random number of indices, that are the 20% of the validation set
-    selected_inference_indices = select_inference_subset_indices(tf.shape(val_image_paths)[0], 0.2)
+    selected_inference_indices = select_inference_subset_indices(tf.shape(val_image_paths)[0], 0.5)
     print("Number of images used during training to see inference the model", len(selected_inference_indices))
 
     # take the selected images
@@ -828,23 +828,7 @@ def select_inference_subset_indices(num_images, ratio=0.2):
 
 def get_patch_starts(image_size, patch_size, stride):
     """
-    Return at most two starting coordinates along one axis.
-
-    The signature is kept unchanged so the rest of the project keeps working.
-
-    If the image dimension is not larger than the patch dimension, no patch
-    position is returned.
-
-    If the image dimension is larger than the patch dimension, two positions
-    are used:
-        - the beginning of the image
-        - the end of the image
-
-    Therefore, when BOTH image dimensions are larger than IMAGE_SIZE,
-    x_starts and y_starts each contain two values and exactly 4 patches
-    are generated.
-
-    `stride` is intentionally kept only for compatibility.
+    Computes the starting positions for patches along a single dimension (height or width) of an image
     """
     del stride
 

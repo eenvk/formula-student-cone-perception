@@ -1,24 +1,18 @@
-"""YOLO inference with candidate filtering before NMS."""
+#Granati
 
 import tensorflow as tf
 
 from keras_cv.src.models.object_detection.yolo_v8 import yolo_v8_detector
-
-from detection.detection_config import IMAGE_SIZE
+from detection.detection_config import IMAGE_SIZE, yolo_SCORE_THRESHOLD, yolo_PRE_NMS_TOP_K, yolo_NMS_IOU_THRESHOLD, yolo_NMS_MAX_DETECTIONS
 
 IMAGE_HEIGHT = IMAGE_SIZE[0]
 IMAGE_WIDTH = IMAGE_SIZE[1]
-
-YOLO_SCORE_THRESHOLD = 0.20
-YOLO_PRE_NMS_TOP_K = 400
-YOLO_NMS_IOU_THRESHOLD = 0.70
-YOLO_NMS_MAX_DETECTIONS = 100
 
 """
     confidence_threshold=0.2, iou_threshold=0.7
 
     params in yolo_v8 implementation, we want to increase the confidence threshold to 0.25 and we add 
-    a top_k parameter to limit the number of candidates passed to NMS. This is important because YOLO can produce a large number of candidate boxes,
+    a top_k parameter to limit the number of candidates passed to NMS. This is important because yolo can produce a large number of candidate boxes,
     but for real-time applications, we want to limit the number of candidates to a manageable number before applying NMS.
 """
 
@@ -76,14 +70,14 @@ def get_yolo_implementation():
     # Check that the implementation has all the required functions.
     for name in required_functions:
         if not hasattr(implementation, name):
-            raise RuntimeError(f"The installed YOLO implementation is missing: {name}")
+            raise RuntimeError(f"The installed yolo implementation is missing: {name}")
 
     return implementation
 
 
 def decode_boxes(raw_boxes, images, implementation):
     """
-    Decode the raw box predictions from the YOLO model into actual bounding boxes.
+    Decode the raw box predictions from the yolo model into actual bounding boxes.
     
     Returns:
         A tensor of shape (batch_size, num_boxes, 4) containing the decoded bounding boxes in the format (x1, y1, x2, y2).
@@ -93,7 +87,7 @@ def decode_boxes(raw_boxes, images, implementation):
     distances = implementation.decode_regression_to_boxes(raw_boxes)
 
     # get_anchors returns the anchors and strides for the given image shape;
-    # anchors are the predefined bounding boxes used by YOLO, and strides are the scaling factors for the feature maps.
+    # anchors are the predefined bounding boxes used by yolo, and strides are the scaling factors for the feature maps.
     anchors, strides = implementation.get_anchors(image_shape=images.shape[1:])
     # The strides are expanded to match the shape of the distances tensor for broadcasting during multiplication.
     strides = implementation.ops.expand_dims(strides, axis=-1)
@@ -122,14 +116,14 @@ def select_candidates(boxes, class_scores):
     classes = tf.argmax(class_scores, axis=-1, output_type=tf.int32) # keep the class with the best score for each box
 
     # Candidates below the threshold cannot become valid detections.
-    valid_scores_mask = scores >= YOLO_SCORE_THRESHOLD # boolean mask
+    valid_scores_mask = scores >= yolo_SCORE_THRESHOLD # boolean mask
 
     invalid_scores = tf.fill(tf.shape(scores), tf.cast(-1.0, scores.dtype)) #auxiliary
     filtered_scores = tf.where(valid_scores_mask, scores, invalid_scores)
 
     # TOP_K bounds the number of candidates passed to NMS.
     num_candidates = tf.shape(filtered_scores)[1]
-    top_k = tf.minimum(num_candidates, YOLO_PRE_NMS_TOP_K)
+    top_k = tf.minimum(num_candidates, yolo_PRE_NMS_TOP_K)
 
     selected_scores, selected_indices = tf.math.top_k(filtered_scores, k=top_k, sorted=True)
 
@@ -169,7 +163,7 @@ def nms_single_image(inputs):
     """
     Apply NMS to one image and pad the selected indices
     Returns:
-        selected_indices: A tensor of shape (YOLO_NMS_MAX_DETECTIONS,) containing the indices of the selected boxes after NMS, padded with -1 for unused slots.
+        selected_indices: A tensor of shape (yolo_NMS_MAX_DETECTIONS,) containing the indices of the selected boxes after NMS, padded with -1 for unused slots.
         num_detections: A scalar tensor indicating the number of valid detections for this image.
     """
 
@@ -178,9 +172,9 @@ def nms_single_image(inputs):
     return tf.image.non_max_suppression_padded(
         boxes=boxes,
         scores=scores,
-        max_output_size=YOLO_NMS_MAX_DETECTIONS,
-        iou_threshold=YOLO_NMS_IOU_THRESHOLD,
-        score_threshold=YOLO_SCORE_THRESHOLD,
+        max_output_size=yolo_NMS_MAX_DETECTIONS,
+        iou_threshold=yolo_NMS_IOU_THRESHOLD,
+        score_threshold=yolo_SCORE_THRESHOLD,
         pad_to_max_output_size=True,
     )
 
@@ -200,7 +194,7 @@ def apply_nms(boxes, scores, classes):
 
     output_signature = (
         tf.TensorSpec(
-            shape=(YOLO_NMS_MAX_DETECTIONS,),
+            shape=(yolo_NMS_MAX_DETECTIONS,),
             dtype=tf.int32,
         ),
         tf.TensorSpec(shape=(), dtype=tf.int32),
@@ -214,7 +208,7 @@ def apply_nms(boxes, scores, classes):
     selected_classes = tf.gather(classes, selected_indices, batch_dims=1)
 
     # Each image may have fewer detections than the padded output size.
-    valid_positions = tf.sequence_mask(num_detections, maxlen=YOLO_NMS_MAX_DETECTIONS)
+    valid_positions = tf.sequence_mask(num_detections, maxlen=yolo_NMS_MAX_DETECTIONS)
 
     selected_boxes = tf.where(valid_positions[..., None], selected_boxes, tf.zeros_like(selected_boxes))
     selected_scores = tf.where(valid_positions, selected_scores, tf.zeros_like(selected_scores))

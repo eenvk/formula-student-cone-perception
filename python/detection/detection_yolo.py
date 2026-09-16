@@ -155,13 +155,11 @@ def main():
     history = model.fit(train_ds, validation_data=val_loss_ds,
                         epochs=EPOCHS, callbacks=callbacks, validation_freq=VALIDATION_FREQ)
 
-    print("\n" + "=" * 80)
-    print("FINAL VALIDATION ON THE COMPLETE VALIDATION SET")
-    print("=" * 80)
+    print("\n\nFINAL VALIDATION ON THE COMPLETE VALIDATION SET")
 
-    print("\nLoading best detection weights...")
+    print("Loading best detection weights")
     model.load_weights(DETECTION_WEIGHTS_PATH)
-    print("\nUpdated model with best detection weights from validation set.")
+    print("Updated model with best detection weights")
 
     final_validation = InferenceValidation(
         full_val_inference_ds,
@@ -175,37 +173,23 @@ def main():
 
     class_names = detection_report["AP@0.5:0.95_per_class"].keys()
 
-    print("\n" + "=" * 78)
-    print("FINAL VALIDATION RESULTS")
-    print("=" * 78)
-
-    print(
-        f"{'Class':<24}"
-        f"{'AP@0.5:0.95':>14}"
-        f"{'Precision':>12}"
-        f"{'Recall':>12}"
-        f"{'F1':>10}"
-    )
-    print("-" * 78)
-
+    print("\nFINAL VALIDATION RESULTS")
     for class_name in class_names:
-        average_precision = (detection_report["AP@0.5:0.95_per_class"][class_name])
-        precision = (classification_report["precision_per_class"][class_name])
-        recall = (classification_report["recall_per_class"][class_name])
-        f1_score = (classification_report["f1_per_class"][class_name])
+        average_precision = detection_report["AP@0.5:0.95_per_class"][class_name]
+        precision = classification_report["precision_per_class"][class_name]
+        recall = classification_report["recall_per_class"][class_name]
+        f1_score = classification_report["f1_per_class"][class_name]
 
-        print(
-            f"{class_name:<24}"
-            f"{average_precision:>14.4f}"
-            f"{precision:>12.4f}"
-            f"{recall:>12.4f}"
-            f"{f1_score:>10.4f}"
-        )
+        print(f"Class: {class_name}")
+        print(f"\tAP@0.5:0.95: {average_precision:.4f}")
+        print(f"\tPrecision: {precision:.4f}")
+        print(f"\tRecall: {recall:.4f}")
+        print(f"\tF1: {f1_score:.4f}")
 
-    print("-" * 78)
-    print(f"mAP@0.5:0.95: {detection_report['mAP@0.5:0.95']:.4f}")
-    print(f"Macro F1: {classification_report['macro_f1']:.4f}")
-    print("=" * 78)
+    print("GENERAL RESULTS")
+    print(f"\tmAP@0.5:0.95: {detection_report['mAP@0.5:0.95']:.4f}")
+    print(f"\tMacro F1: {classification_report['macro_f1']:.4f}")
+
 
     return history
 
