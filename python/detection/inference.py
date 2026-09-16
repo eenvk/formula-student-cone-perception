@@ -512,21 +512,15 @@ def detect_frame(image_bgr, yolo_infer):
     timings = {}
 
     start_time = time.perf_counter()
-
     inputs, metadata, num_views = build_detection_inputs(image_bgr)
-
     timings["detection_preprocess"] = elapsed_ms(start_time)
 
     start_time = time.perf_counter()
-
     raw_predictions = yolo_infer(inputs)
-
     timings["yolo_inference"] = elapsed_ms(start_time)
 
     start_time = time.perf_counter()
-
     predictions = postprocess_inference_dataset(raw_predictions, metadata)
-
     timings["detection_postprocess"] = elapsed_ms(start_time)
 
     if len(predictions) != 1:

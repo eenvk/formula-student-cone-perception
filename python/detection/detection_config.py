@@ -65,8 +65,10 @@ MIN_RETAINED_AREA = 0.3
 # Maximum number of attempts used to generate a valid negative crop.
 NUM_NEGATIVE_CROP_ATTEMPTS = 20
 
-#yolo hyperparameters
+#yolo standard values
 yolo_SCORE_THRESHOLD = 0.25
-yolo_PRE_NMS_TOP_K = 400
 yolo_NMS_IOU_THRESHOLD = 0.70
 yolo_NMS_MAX_DETECTIONS = 100
+
+#hyperparam
+yolo_PRE_NMS_TOP_K = 200

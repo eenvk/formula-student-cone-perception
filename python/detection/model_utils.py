@@ -16,10 +16,8 @@ from detection.decoder import create_yolo_inference
 def configure_gpu():
     """
     Configures GPU memory growth and displays framework versions.
-
     This function enables dynamic GPU memory allocation to prevent TensorFlow
-    from reserving all GPU memory at startup. Also displays versions of
-    TensorFlow and KerasCV, and notifies if no GPU is detected.
+    from reserving all GPU memory at startup
     """
     gpus = tf.config.list_physical_devices("GPU")
 
@@ -45,8 +43,7 @@ def configure_gpu():
 def create_model(num_classes=None):
     """
     Creates and compiles a YOLOv8 object detection model.
-
-    Loads a pre-trained YOLOv8-XS backbone (trained on COCO dataset),
+    Loads a pre-trained YOLOv8-XS backbone,
     creates a detector head, and compiles the model with:
     - Adam optimizer with gradient clipping for stability
     - Binary crossentropy for classification loss
@@ -98,7 +95,6 @@ class InferenceValidation(keras.callbacks.Callback):
     def __init__(self, data, save_path, metadata, y_true, eval_every=10):
         """
         Initializes the callback with validation data, save path, and evaluation frequency.
-
         Args:
             data: Validation dataset for inference.
             save_path: Path to save the best model weights.
@@ -124,6 +120,7 @@ class InferenceValidation(keras.callbacks.Callback):
             self.y_true.append(image_gt)
 
     def set_model(self, model):
+        """ Sets the model for inference and creates a YOLO inference function"""
         super().set_model(model)
         self.infer = create_yolo_inference(model)
 

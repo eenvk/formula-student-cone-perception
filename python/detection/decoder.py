@@ -9,11 +9,9 @@ IMAGE_HEIGHT = IMAGE_SIZE[0]
 IMAGE_WIDTH = IMAGE_SIZE[1]
 
 """
-    confidence_threshold=0.2, iou_threshold=0.7
-
-    params in yolo_v8 implementation, we want to increase the confidence threshold to 0.25 and we add 
-    a top_k parameter to limit the number of candidates passed to NMS. This is important because yolo can produce a large number of candidate boxes,
-    but for real-time applications, we want to limit the number of candidates to a manageable number before applying NMS.
+    params in yolo_v8 implementation, we add  a top_k parameter to limit the number of candidates passed to NMS.
+    This is important because yolo can produce a large number of candidate boxes, but for real-time applications,
+    we want to limit the number of candidates to a manageable number before applying NMS.
 """
 
 def create_yolo_inference(model):
