@@ -35,15 +35,13 @@ struct GroundTruth{
     std::vector<Box> boxes;
 };
 
-// Class conversion and visualization helpers.
+// Class conversion helpers.
 bool is_cone_class_id(int class_id);
 std::string class_id_to_name(int class_id);
-cv::Scalar class_color_bgr(int class_id);
 
 // Dataset loading and preprocessing utilities.
 cv::Mat load_image(const std::filesystem::path& image_path);
 std::vector<DatasetPair> find_test_pairs(const std::filesystem::path& image_dir, const std::filesystem::path& annotation_dir);
 GroundTruth load_ground_truth(const std::filesystem::path& annotation_path, int image_height, int image_width);
-cv::Mat create_overlay(const cv::Mat& image_bgr, const cv::Mat& mask, double alpha = 0.45);
 
 #endif
