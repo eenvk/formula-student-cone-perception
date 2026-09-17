@@ -4,10 +4,7 @@ import numpy as np
 import time
 
 import cv2
-import numpy as np
 import tensorflow as tf
-
-import time
 
 from timing.timing_utils import elapsed_ms
 from detection.data_pipeline import build_inference_metadata, create_combined_views
@@ -41,11 +38,9 @@ def predict_inference_dataset(infer, inference_ds, metadata) -> list[list[Box]]:
 
 def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
     """
-    Convert raw predictions from patch and full-image views into final
-    detections grouped by original image.
+    Convert raw predictions from patch and full-image views into final detections grouped by original image.
     The function maps predictions back to original-image coordinates, applies patch-aware and final NMS,
-    and returns one list of Box objects
-    for each original image
+    and returns one list of Box objects for each original image
 
     Returns:
         list: final detections grouped by original image.
@@ -66,11 +61,10 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
 
     num_images = max(item["image_index"] for item in metadata) + 1
 
-    # create list of list predictions
     patch_predictions = [[] for _ in range(num_images)]
     full_predictions = [[] for _ in range(num_images)]
 
-    # Now we want to organized all the views w.r.t. images
+    # organize all the views w.r.t. images
     for view_index, view_metadata in enumerate(metadata):
         image_index = view_metadata["image_index"]
 
@@ -78,23 +72,16 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
         image_height = view_metadata["image_height"]
 
         if view_metadata["is_patch"]:
-            # add all elems of a list inside another list in sequential order
-            patch_predictions[image_index].extend(
-                process_patch_view(raw_predictions, view_index, view_metadata)
-            )
+            patch_predictions[image_index].extend(process_patch_view(raw_predictions, view_index, view_metadata))
 
         else:
-            full_predictions[image_index].extend(
-                process_full_view(raw_predictions, view_index, view_metadata, image_width, image_height)
-            )
+            full_predictions[image_index].extend(process_full_view(raw_predictions, view_index, view_metadata, image_width, image_height))
 
     # NMS independently for every original image
     final_predictions = []
 
     for image_index in range(num_images):
-
-        # All metadata belonging to the same image have
-        # the same original image dimensions.
+        # All metadata belonging to the same image have the same original image dimensions.
         # Let's consider only views belonging to image_index
         for item in metadata:
             if item["image_index"] == image_index:
@@ -108,10 +95,12 @@ def postprocess_inference_dataset(raw_predictions, metadata) -> list[list[Box]]:
         image_patch_predictions = global_nms_patch_aware(patch_predictions[image_index], image_width, image_height)
         image_final_predictions = final_nms(image_patch_predictions, full_predictions[image_index])
 
-        final_predictions.append([
-            prediction_to_box(prediction["bbox"], prediction["class_id"], prediction["score"],)
-            for prediction in image_final_predictions
-        ])
+        converted_pred = []
+        for pred in image_final_predictions:
+            box = prediction_to_box(pred["bbox"], pred["class_id"], pred["score"])
+            converted_pred.append(box)
+
+        final_predictions.append(converted_pred)
 
     return final_predictions
 
@@ -138,9 +127,7 @@ def compute_areas_and_intersection(box_a, box_b):
     return intersection_area, area_a, area_b
 
 def calculate_iou(box_a, box_b):
-    """
-    Compute IoU between two xyxy bounding boxes.
-    """
+    """ Compute IoU between two xyxy bounding boxes """
 
     intersection_area, area_a, area_b = compute_areas_and_intersection(box_a, box_b)
     union_area = area_a + area_b - intersection_area
@@ -151,9 +138,7 @@ def calculate_iou(box_a, box_b):
     return intersection_area / union_area
 
 def calculate_containment(box_a, box_b):
-    """
-    Compute how much of the smaller box is contained inside the other box.
-    """
+    """ Compute how much of the smaller box is contained inside the other box. """
 
     intersection_area, area_a, area_b = compute_areas_and_intersection(box_a, box_b)
     smaller_area = min(area_a, area_b)
@@ -166,10 +151,6 @@ def calculate_containment(box_a, box_b):
 def is_near_internal_patch_border(prediction, image_width, image_height, margin=PATCH_BORDER_MARGIN):
     """
     Check whether a detection is close to an INTERNAL patch border.
-
-    local_bbox is stored directly in source-patch coordinates, so the same
-    logic works for native patches and letterboxed quadrants.
-
     Returns true if the detection is near an internal patch border, false otherwise.
     """
 
@@ -198,10 +179,6 @@ def is_near_internal_patch_border(prediction, image_width, image_height, margin=
 def is_near_box(box_a, box_b, expansion_factor=0.30):
     """
     Check whether box_b is close to box_a.
-    box_a is expanded by a fraction of its width/height.
-    Useful for detecting border fragments that may have
-    little or no IoU with the main detection.
-
     Returns True if box_b intersects the expanded region of box_a, False otherwise.
     """
 
@@ -214,46 +191,34 @@ def is_near_box(box_a, box_b, expansion_factor=0.30):
     if width_a <= 0 or height_a <= 0:
         return False
 
-    # Expand box_a by a fraction of its width and height
     pad_x = width_a * expansion_factor
     pad_y = height_a * expansion_factor
 
-    # Create an expanded box around box_a
     expanded_a = [ax1 - pad_x, ay1 - pad_y, ax2 + pad_x, ay2 + pad_y]
 
     ex1, ey1, ex2, ey2 = expanded_a
 
-    # Does box_b intersect the expanded region?
     intersection_x1 = max(ex1, bx1)
     intersection_y1 = max(ey1, by1)
     intersection_x2 = min(ex2, bx2)
     intersection_y2 = min(ey2, by2)
 
-    # Check if the intersection area is positive
     return (intersection_x2 > intersection_x1 and intersection_y2 > intersection_y1)
 
 # Post Processing
 def global_nms_patch_aware(predictions, image_width, image_height):
     """
-    Remove duplicate detections produced by different patches.
-
-    Predictions coming from the same patch are not suppressed
-    by the global NMS.
-
-    When duplicate detections come from different patches,
-    detections away from internal patch borders are preferred.
-    Confidence is used as a secondary criterion.
+    Remove duplicate detections produced by different patches,
+    predictions coming from the same patch are not suppressed by the global NMS
     """
 
     def sorting_key(prediction):
         near_border = is_near_internal_patch_border(prediction, image_width, image_height,)
 
-        # First prefer boxes not close to internal borders,
-        # then prefer higher confidence.
+        # First prefer boxes not close to internal borders, then prefer higher confidence.
         return (not near_border, prediction["score"])
 
     predictions = sorted(predictions, key=sorting_key, reverse=True)
-
     selected = []
 
     while predictions:
@@ -267,8 +232,6 @@ def global_nms_patch_aware(predictions, image_width, image_height):
         for prediction in predictions:
             prediction_near_border = is_near_internal_patch_border(prediction, image_width, image_height)
 
-            # Same patch:
-            # do NOT use global NMS to suppress them.
             if (prediction["patch_index"] == best["patch_index"]):
                 remaining.append(prediction)
                 continue
@@ -280,12 +243,7 @@ def global_nms_patch_aware(predictions, image_width, image_height):
                     remaining.append(prediction)
                     continue
 
-            # SPECIAL CASE:
-            # same class, different patch
-            # best is a reliable non-border detection,
-            # prediction is a border fragment close to best.
             if (not best_near_border and prediction_near_border and is_near_box(best["bbox"], prediction["bbox"])):
-                # Suppress border fragment
                 continue
 
             # Cross-patch duplicate detection
@@ -309,13 +267,7 @@ def clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max):
     return x_min,y_min,x_max,y_max
 
 def final_nms(patch_predictions, total_predictions):
-    """
-    Resolve patch-vs-total duplicates using greedy NMS
-
-    Returns:
-        list: Final predictions after NMS.
-    """
-
+    """ Resolve patch-vs-total duplicates using greedy NMS """
     candidates = []
 
     for prediction in patch_predictions:
@@ -331,16 +283,14 @@ def final_nms(patch_predictions, total_predictions):
         suppress = False
 
         for selected_prediction, selected_source in selected:
-            # Patch-vs-patch and total-vs-total
-            # have already been handled before.
+            # Patch-vs-patch and total-vs-total have already been handled before.
             if source == selected_source:
                 continue
 
             iou = calculate_iou(prediction["bbox"], selected_prediction["bbox"])
             containment = calculate_containment(prediction["bbox"], selected_prediction["bbox"])
 
-            # Different classes are kept unless
-            # containment is almost complete.
+            # Different classes are kept unless containment is almost complete.
             if prediction["class_id"] != selected_prediction["class_id"]:
                 if containment < GLOBAL_CROSS_CONTAINMENT_THRESHOLD:
                     continue
@@ -348,8 +298,7 @@ def final_nms(patch_predictions, total_predictions):
             if (iou < GLOBAL_NMS_IOU_THRESHOLD and containment < GLOBAL_CONTAINMENT_THRESHOLD):
                 continue
 
-            # selected_prediction has equal or higher confidence,
-            # because candidates are sorted by score.
+            # selected_prediction has equal or higher confidence, because candidates are sorted by score.
             suppress = True
             break
 
@@ -395,14 +344,11 @@ def process_patch_view(predictions, index, metadata):
         list of dicts: Each dict contains metadata and coordinates for a detection in the source image."""
     result = []
 
-    # Extract patch metadata
     offset_x = metadata["offset_x"]
     offset_y = metadata["offset_y"]
-
     valid_width = metadata["valid_width"]
     valid_height = metadata["valid_height"]
 
-    # Extract source image dimensions and letterbox parameters
     source_width = metadata["source_width"]
     source_height = metadata["source_height"]
 
@@ -411,10 +357,10 @@ def process_patch_view(predictions, index, metadata):
     pad_x = metadata["pad_x"]
     pad_y = metadata["pad_y"]
 
-    for bbox, class_id, score in get_view_detections(predictions, index):
-        x_min, y_min, x_max, y_max = bbox
+    view_detections = get_view_detections(predictions, index)
 
-        # First clip in the detector input space.
+    for bbox, class_id, score in view_detections:
+        x_min, y_min, x_max, y_max = bbox
         x_min, y_min, x_max, y_max = clip_coordinates(valid_height, valid_width, x_min, y_min, x_max, y_max)
 
         if x_max <= x_min or y_max <= y_min:
@@ -467,7 +413,9 @@ def process_full_view(predictions, index, metadata, image_width, image_height):
     pad_x = metadata["pad_x"]
     pad_y = metadata["pad_y"]
 
-    for bbox, class_id, score in get_view_detections(predictions, index):
+    view_detections = get_view_detections(predictions, index)
+
+    for bbox, class_id, score in view_detections:
         x_min, y_min, x_max, y_max = bbox
 
         x_min = (x_min - pad_x) / scale_x
@@ -475,7 +423,6 @@ def process_full_view(predictions, index, metadata, image_width, image_height):
         x_max = (x_max - pad_x) / scale_x
         y_max = (y_max - pad_y) / scale_y
 
-        # Clip the coordinates to ensure they are within the original image dimensions.
         x_min, y_min, x_max, y_max = clip_coordinates(image_height, image_width, x_min, y_min, x_max, y_max)
 
         if x_max <= x_min or y_max <= y_min:
