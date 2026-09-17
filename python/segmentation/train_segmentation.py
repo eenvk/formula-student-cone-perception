@@ -1,6 +1,6 @@
 #Novkovic
 
-"""Training process of the U-Net model."""
+"""Training process of the unet model"""
 
 import tensorflow as tf
 
@@ -16,7 +16,7 @@ BACKUP_DIR = MODEL_DIR / "training_backup"
 
 def main():
     """Creates the model directory, loads the training and validation datasets,
-    builds the U-Net, compiles it with the Adam optimizer and Binary Cross-Entropy loss,
+    builds the unet, compiles it with the Adam optimizer and Binary Cross-Entropy loss,
     and starts the training process."""
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -30,12 +30,12 @@ def main():
     model.summary()
 
     callbacks = [
-        tf.keras.callbacks.ModelCheckpoint(filepath=str(BEST_WEIGHTS_PATH),monitor="val_loss",mode="min",save_best_only=True,save_weights_only=True,),
-        tf.keras.callbacks.BackupAndRestore(backup_dir=str(BACKUP_DIR),),
+        tf.keras.callbacks.ModelCheckpoint(filepath=str(BEST_WEIGHTS_PATH),monitor="val_loss",mode="min",save_best_only=True,save_weights_only=True),
+        tf.keras.callbacks.BackupAndRestore(backup_dir=str(BACKUP_DIR)),
         tf.keras.callbacks.EarlyStopping(monitor="val_loss",patience=6,restore_best_weights=True,),
     ]
 
-    model.fit(train_dataset,validation_data=validation_dataset,epochs=NUM_EPOCHS,callbacks=callbacks,)
+    model.fit(train_dataset,validation_data=validation_dataset,epochs=NUM_EPOCHS,callbacks=callbacks)
 
 
 if __name__ == "__main__":

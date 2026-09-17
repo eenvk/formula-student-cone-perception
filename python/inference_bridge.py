@@ -1,6 +1,6 @@
 #
 
-"""Run the optimized frame by frame yolo è u-net inference pipeline and export predictions for the c++ application"""
+"""Run the optimized frame by frame yolo and u-net inference pipeline and export predictions for the c++ application"""
 
 import argparse
 import csv

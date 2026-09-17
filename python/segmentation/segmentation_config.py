@@ -1,6 +1,6 @@
 #Novkovic
 
-"""Configuration parameters for cone segmentation"""
+"""Configuration parameters for  segmentation"""
 
 RANDOM_SEED = 42
 

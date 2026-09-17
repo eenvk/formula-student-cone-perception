@@ -1,6 +1,6 @@
 #Novkovic
 
-"""Lightweight U-Net architecture for cone segmentation"""
+"""Lightweight unet architecture for cone segmentation"""
 
 import tensorflow as tf
 
@@ -8,7 +8,7 @@ from segmentation.segmentation_config import BASE_FILTERS, DROPOUT_RATE, INPUT_C
 
 
 def conv_block(inputs, filters):
-    """Applies two convolutional layers with ReLU activation to extract visual features from the input."""
+    """Applies 2 convolutional layers with relu activation to extract visual features from the input"""
 
     x = tf.keras.layers.Conv2D(filters, kernel_size=3, padding="same", activation="relu")(inputs)
     x = tf.keras.layers.Conv2D(filters, kernel_size=3, padding="same", activation="relu")(x)
@@ -17,7 +17,7 @@ def conv_block(inputs, filters):
 
 
 def encoder_block(inputs, filters):
-    """Extracts features using a convolutional block and then reduces their spatial size with max pooling."""
+    """Extracts features using a convolutional block and then reduces their spatial size with max pooling"""
 
     features = conv_block(inputs, filters)
     pooled = tf.keras.layers.MaxPooling2D(pool_size=2)(features)

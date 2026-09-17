@@ -16,7 +16,7 @@ from segmentation.segmentation_config import BATCH_SIZE, BBOX_CENTER_JITTER, BBO
 
 
 
-def create_crop_box(box: Box, image_height: int, image_width: int, rng: random.Random, training: bool) -> tuple[int, int, int, int]:
+def create_crop_box(box: Box, image_height: int, image_width: int, training: bool, rng: random.Random | None=None) -> tuple[int, int, int, int]:
     '''Creates a crop around the cone starting from its GT bounding box,
     then the box is enlarged with some padding to give to the network some context around the cone.
     During training, the crop center and padding are randomly changed to make the model less dependent
@@ -26,6 +26,8 @@ def create_crop_box(box: Box, image_height: int, image_width: int, rng: random.R
     box_height = box.y_max - box.y_min
 
     if training:
+        if rng is None:
+            raise ValueError("Random generator is required during training.")
         padding_factor = rng.uniform(BBOX_PADDING_MIN, BBOX_PADDING_MAX)
         center_offset_x = rng.uniform(-BBOX_CENTER_JITTER, BBOX_CENTER_JITTER) * box_width
         center_offset_y = rng.uniform(-BBOX_CENTER_JITTER, BBOX_CENTER_JITTER) * box_height
@@ -134,11 +136,11 @@ def apply_color_augmentation(image: np.ndarray, rng: random.Random) -> np.ndarra
 
 
 def prepare_instance_sample(image_rgb: np.ndarray, instance, rng: random.Random, training: bool) -> tuple[np.ndarray, np.ndarray]:
-    """prepare one individual cone instance for the network, it combines
-    all preprocessing operations for a single cone"""
+    """prepare one individual cone instance for the network,
+    it combines all preprocessing operations for a single cone"""
     image_height, image_width = image_rgb.shape[:2]
 
-    x_min, y_min, x_max, y_max = create_crop_box(instance.bbox, image_height, image_width, rng, training)
+    x_min, y_min, x_max, y_max = create_crop_box(instance.bbox, image_height, image_width, training, rng)
 
     image_crop = image_rgb[y_min:y_max, x_min:x_max]
     mask_crop = instance.mask[y_min:y_max, x_min:x_max].astype(np.uint8)
@@ -183,8 +185,8 @@ def segmentation_sample_generator(pairs: Sequence[tuple[Path, Path]], training: 
 
 
 def create_segmentation_dataset(pairs: Sequence[tuple[Path, Path]], training: bool) -> tf.data.Dataset:
-    """Creates the TensorFlow dataset used by the model. It takes the generated image–mask pairs,
-s   huffles them for training, groups them into batches, and prepares the data efficiently for the network."""
+    """Creates the tensorflow dataset used by the model. It takes the generated image–mask pairs,
+    shuffles them for training, groups them into batches and prepares the data for the network."""
 
     output_signature = (
         tf.TensorSpec(shape=(INPUT_HEIGHT, INPUT_WIDTH, INPUT_CHANNELS), dtype=tf.float32),
