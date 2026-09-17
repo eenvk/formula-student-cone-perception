@@ -25,7 +25,7 @@ def main():
 
     model = build_unet()
 
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),loss=tf.keras.losses.BinaryCrossentropy(), metrics={tf.keras.metrics.BinaryIoU(targer_class_ids=[1], threshold=MASK_THRESHOLD, name="iou")})
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),loss=tf.keras.losses.BinaryCrossentropy(), metrics=[tf.keras.metrics.BinaryIoU(target_class_ids=[1], threshold=MASK_THRESHOLD, name="iou")])
 
     model.summary()
 
