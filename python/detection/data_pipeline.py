@@ -20,7 +20,8 @@ from detection.detection_config import (
     SPLIT_RATIO,
     PATCH_BATCH_SIZE,
     MIN_RETAINED_AREA,
-    NUM_NEGATIVE_CROP_ATTEMPTS
+    NUM_NEGATIVE_CROP_ATTEMPTS,
+    OVERLAP
 )
 
 def build_train_val_datasets():
@@ -174,7 +175,6 @@ def prepare_dataset_data(pairs):
     return image_paths, classes, bbox, image_shapes
 
 
-@tf.function
 def load_image(image_path):
     """
     Loads an image file and decodes it into a tensor.
@@ -709,12 +709,21 @@ def build_inference_metadata(image_shapes):
                 split_x = image_width // 2
                 split_y = image_height // 2
 
-                quadrants = [
-                    (0, 0, split_x, split_y),
-                    (split_x, 0, image_width - split_x, split_y),
-                    (0, split_y, split_x, image_height - split_y),
-                    (split_x, split_y, image_width - split_x, image_height - split_y),
-                ]
+                # first quadrant | second quadrant
+                # third quadrant | fourth quadrant
+                half_overlap = OVERLAP // 2
+
+                left = max(0, split_x + half_overlap)
+                right = min(image_width, split_x - half_overlap)
+                top = max(0, split_y + half_overlap)
+                bottom = min(image_height, split_y - half_overlap)
+
+                first_quadrant = (0, 0, left, top)
+                second_quadrant = (right, 0, image_width - right, top)
+                third_quadrant = (0, bottom, left, image_height - bottom)
+                fourth_quadrant = (right, bottom, image_width - right, image_height - bottom)
+
+                quadrants = [first_quadrant, second_quadrant, third_quadrant, fourth_quadrant]
 
                 for x_start, y_start, source_width, source_height in quadrants:
                     scale = min(
@@ -929,14 +938,21 @@ def create_patches(image, patch_size=IMAGE_SIZE):
         split_x = image_width // 2
         split_y = image_height // 2
 
+        half_overlap = OVERLAP // 2
+
+        left = tf.maximum(0, split_x + half_overlap)
+        right = tf.minimum(image_width, split_x - half_overlap)
+        top = tf.maximum(0, split_y + half_overlap)
+        bottom = tf.minimum(image_height, split_y - half_overlap)
+
+        first_quadrant = (0, 0, left, top)
+        second_quadrant = (right, 0, image_width - right, top)
+        third_quadrant = (0, bottom, left, image_height - bottom)
+        fourth_quadrant = (right, bottom, image_width - right, image_height - bottom)
+
         # Define the four quadrants of the image based on the split coordinates.
         # Each quadrant is represented as (x_start, y_start, width, height).
-        quadrants = [
-            (0, 0, split_x, split_y),
-            (split_x, 0, image_width - split_x, split_y),
-            (0, split_y, split_x, image_height - split_y),
-            (split_x, split_y, image_width - split_x, image_height - split_y),
-        ]
+        quadrants = [first_quadrant, second_quadrant, third_quadrant, fourth_quadrant]
 
         patches = []
 

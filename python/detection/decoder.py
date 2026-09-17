@@ -27,11 +27,9 @@ def create_yolo_inference(model):
     implementation = get_yolo_implementation()
 
     # Define a TensorFlow function for graph execution to improve performance, tensorflow optimization
-    @tf.function(
-        input_signature=[
-            tf.TensorSpec(
-                shape=(None, IMAGE_HEIGHT, IMAGE_WIDTH, 3),
-                dtype=tf.float32,
+    @tf.function(input_signature=[tf.TensorSpec(
+            shape=(None, IMAGE_HEIGHT, IMAGE_WIDTH, 3),
+            dtype=tf.float32,
             )
         ]
     )
