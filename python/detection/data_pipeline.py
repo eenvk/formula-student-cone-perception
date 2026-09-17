@@ -2,6 +2,8 @@
 
 import tensorflow as tf
 import numpy as np
+import math
+import random
 
 from dataset.dataset_utils import (
     get_bounding_boxes_train_pairs,
@@ -26,7 +28,7 @@ from detection.detection_config import (
 
 def build_train_val_datasets():
     """
-    Builds training and validation datasets from the complete dataset.
+    Builds training and validation datasets from the detection dataset.
     
     Creates TensorFlow datasets by:
     1. Collecting all image-annotation pairs
@@ -34,44 +36,36 @@ def build_train_val_datasets():
     3. Parsing annotations to extract bounding boxes and classes
     4. Build the single element of the dataset
     5. Build train and validation set with images and prepares batching
-    6. Build the inference validation set
-    
-    Returns:
-        tuple: (train_ds, val_ds) TensorFlow datasets ready for training
+    6. Build the two inference validation sets
     """
 
-    # 1. pairs of the type: [image_dir, annotation_dir]
     pairs = get_bounding_boxes_train_pairs()
     num_samples = len(pairs)
 
     print(f"\nImage/annotation pairs found: {num_samples}")
 
-    # 2.
     train_pairs, val_pairs = train_validation_split(pairs, SPLIT_RATIO, SEED)
 
     num_train = len(train_pairs)
     num_val = len(val_pairs)
 
-    # Display the split results
     print("\nTraining samples:", num_train)
     print("Validation samples:", num_val)
 
-    # 3.
     print("Reading annotations and extract bounding boxes ground truth and classes...")
     train_image_paths, train_classes, train_bboxes, _  = prepare_dataset_data(train_pairs)
     val_image_paths, val_classes, val_bboxes, val_image_shapes = prepare_dataset_data(val_pairs)
 
     print("\nDataset loaded with image paths.")
-    print("Training set features:")
+    print("Training set dims:")
     print("- Images:", train_image_paths.shape)
     print("- Classes:", train_classes.shape)
     print("- Bounding boxes:", train_bboxes.shape)
-    print("Validation set features:")
+    print("Validation set dims:")
     print("- Images:", val_image_paths.shape)
     print("- Classes:", val_classes.shape)
-    print("- Bounding bobuild_data_structurexes:", val_bboxes.shape)
+    print("- Bounding boxes:", val_bboxes.shape)
 
-    # 4.
     # Create a TensorFlow dataset by combining image paths, classes, and bounding boxes
     # from_tensor_slices creates a dataset where each element is a slice of the inputs
     # now the structure of the dataset is :
@@ -81,15 +75,12 @@ def build_train_val_datasets():
     train_data = build_data_structure(train_image_paths, train_classes, train_bboxes)
     val_data = build_data_structure(val_image_paths, val_classes, val_bboxes)
 
-    # 5.
     train_ds = build_train_dataset(train_data, num_train)
     val_loss_ds = build_val_loss_dataset(val_data)
 
-    # 6. select a random number of indices, that are the 20% of the validation set
-    selected_inference_indices = select_inference_subset_indices(tf.shape(val_image_paths)[0], 0.5)
+    selected_inference_indices = select_inference_subset_indices(len(val_image_paths), 0.5)
     print("Number of images used during training to see inference the model", len(selected_inference_indices))
 
-    # take the selected images
     selected_inference_paths = tf.gather(val_image_paths, selected_inference_indices)
     selected_inference_images_shapes = tf.gather(val_image_shapes, selected_inference_indices)
 
@@ -137,26 +128,20 @@ def prepare_dataset_data(pairs):
     image_shapes = []
 
     for image_path, annotation_path in pairs:
-
-        # We load the image here only to know width and height.
         annotation = load_annotation(annotation_path)
 
         image_height = annotation["size"]["height"]
         image_width = annotation["size"]["width"]
 
-        # dataset_utils parses the JSON, removes unknown_cone
-        # and returns the bounding boxes.
+        # dataset_utils parses the JSON, removes unknown_cone and returns the bounding boxes.
         instances = annotation_to_instances(annotation_path, image_height, image_width)
 
         boxes = []
         classes = []
 
         for box in instances:
-
-            boxes.append([float(box.x_min), float(box.y_min), float(box.x_max), float(box.y_max)])
-
-            # dataset_utils uses IDs 1-4.
-            # Detection uses IDs 0-3.
+            boxes.append([box.x_min, box.y_min, box.x_max, box.y_max])
+            # dataset_utils uses IDs 1-4 / detection uses IDs 0-3.
             detection_class_id = segmentation_id_to_detection_id(box.class_id)
 
             classes.append(detection_class_id)
@@ -170,17 +155,13 @@ def prepare_dataset_data(pairs):
     bbox = tf.ragged.constant(all_boxes, dtype=tf.float32, ragged_rank=1)
     classes = tf.ragged.constant(all_classes, dtype=tf.float32, ragged_rank=1)
 
-    image_shapes = tf.constant(image_shapes, dtype= tf.int32)
+    image_shapes = tf.constant(image_shapes)
 
     return image_paths, classes, bbox, image_shapes
 
 
 def load_image(image_path):
-    """
-    Loads an image file and decodes it into a tensor.
-    Returns:
-        tf.Tensor: Decoded image tensor with shape [height, width, 3]
-    """
+    """Loads an image file and decodes it into a tensor """
     image_bytes = tf.io.read_file(image_path)
 
     image = tf.io.decode_image(
@@ -196,14 +177,11 @@ def load_image(image_path):
 
 def load_dataset(image_path, classes, bbox):
     """
-    Loads an image and packages it with its bounding box annotations.
+    Loads an image and packages it with its bounding box annotations and it combines an image with its associated bounding box
+    into a dictionary format.
     
-    Combines an image with its associated bounding box and class information
-    into a dictionary format. Used as a mapping function in the TensorFlow
-    data pipeline.
-    
-    Returns:
-        dict: Dictionary containing the image tensor and bounding box annotations.
+    returns:
+        dict: dictionary containing the image tensor and bounding box annotations
     """
     image = load_image(image_path)
 
@@ -218,37 +196,22 @@ def load_dataset(image_path, classes, bbox):
     }
 
 
-def dict_to_tuple(inputs):
-    """
-    Converts dataset samples from dictionary format to tuple format.
-    
-    Transforms the batched dictionary representation into a tuple of
-    (images, bounding_boxes) which is the expected format for training.
-    """
+def dict_to_tuple(samples):
+    """ Converts dataset samples from dictionary format to tuple format. """
     return (
-        inputs["images"],
-        inputs["bounding_boxes"],
+        samples["images"],
+        samples["bounding_boxes"],
     )
 
 
 
 def build_data_structure(image_paths, classes, bboxes):
-    """
-    build the element of the dataset. Each element is formed by its
-    image_path, class, bbox
-
-    Returns:
-        tf.data.Dataset: A TensorFlow dataset where each element is a tuple of (image_path, classes, bboxes)
-    """
+    """ build the element of the dataset. Each element is formed by its image_path, class, bbox"""
     return tf.data.Dataset.from_tensor_slices((image_paths, classes, bboxes))
 
 def positive_crop(image_path, classes, bbox):
     """
-    it applies the positive crop: crop the image to IMAGE_SIZExIMAGE_SIZE with at least 1 cone.
-    the cone should be in a random position w.r.t. the crop and it needs to appear with at least a
-    MIN_RETAINED_AREA, otherwise another crop should be considered.
-    If it's not possible to apply a positive crop, then the full image is used instead.
-
+    Create a crop containing at least one cone, boxes with less than MIN_RETAINED_AREA are discarded.
     Returns:
         dict: Dictionary containing the cropped image tensor and adjusted bounding box annotations.
     """
@@ -271,13 +234,10 @@ def positive_crop(image_path, classes, bbox):
     valid_indices = tf.where(can_fit)[:, 0]
     n_valid = tf.shape(valid_indices)[0]
 
-    # if it's not possible to apply any positive_crop, then use a full_image
     def fallback():
         return load_dataset(image_path, classes, bbox)
 
-    # if it's possible, build a positive crop
     def make_positive_crop():
-        # select a random cone of the image
         random_index = tf.random.uniform([], 0, n_valid, dtype=tf.int32)
         selected_cone = valid_indices[random_index]
 
@@ -300,7 +260,6 @@ def positive_crop(image_path, classes, bbox):
         crop_x = tf.random.uniform([], min_crop_x, max_crop_x + 1, dtype=tf.int32)
         crop_y = tf.random.uniform([], min_crop_y, max_crop_y + 1, dtype=tf.int32)
 
-        # apply the crop
         image_crop = tf.image.crop_to_bounding_box(image, crop_y, crop_x, crop_height, crop_width)
 
         # now we need to move the bounding box w.r.t. the crop we applied
@@ -366,14 +325,9 @@ def negative_crop(image_path, classes, bbox):
 
     def make_negative_crop():
         """
-        Generates a negative crop that does not intersect with any bounding box.
         It tries NUM_NEGATIVE_CROP_ATTEMPTS random crops and selects one that does not intersect with any bounding box.
         If no valid crop is found, it falls back to loading the full image.
-
-        Returns:
-            dict: Dictionary containing the negative cropped image tensor and empty bounding box annotations.
         """
-        # Generate several random candidate crops.
         crop_xs = tf.random.uniform([NUM_NEGATIVE_CROP_ATTEMPTS], 0, image_width - crop_width + 1, dtype=tf.int32)
         crop_ys = tf.random.uniform([NUM_NEGATIVE_CROP_ATTEMPTS], 0, image_height - crop_height + 1, dtype=tf.int32)
 
@@ -383,7 +337,6 @@ def negative_crop(image_path, classes, bbox):
         crop_x2s = crop_xs_float + crop_width
         crop_y2s = crop_ys_float + crop_height
 
-        # Intersection between every candidate crop and every bbox.
         ix1 = tf.maximum(crop_xs_float[:, None], bbox[None, :, 0])
         iy1 = tf.maximum(crop_ys_float[:, None], bbox[None, :, 1])
         ix2 = tf.minimum(crop_x2s[:, None], bbox[None, :, 2])
@@ -452,12 +405,6 @@ def load_train_dataset(image_path, classes, bbox):
         return negative_crop(image_path, classes, bbox)
 
 def augment_sample(sample):
-    """
-    Applies random data augmentation without increasing dataset size.
-
-    Returns:
-        dict: Dictionary containing the augmented image tensor and bounding box annotations.
-    """
     images = sample["images"]
     bounding_boxes = sample["bounding_boxes"]
 
@@ -470,7 +417,6 @@ def augment_sample(sample):
     if tf.random.uniform(()) < 0.5:
         images = tf.image.random_saturation(images, lower=0.9, upper=1.1)
 
-    # apply clip to ensure pixel values remain in the valid range after augmentation
     images = tf.clip_by_value(images, 0.0, 255.0)
 
     return {
@@ -494,41 +440,26 @@ def build_train_dataset(train_data, num_train):
         tf.data.Dataset: A TensorFlow dataset ready for training with images and bounding box annotations.
     """
 
-    # Shuffle the training samples at each epoch.
+    #at each epoch.
     train_data = train_data.shuffle(
         buffer_size=num_train,
         seed=SEED,
         reshuffle_each_iteration=True
     )
 
-    #load full_image or crop_image
     train_ds = train_data.map(load_train_dataset,num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=False)
-    # we fix the image in 800x800
-    # NOTe: crop image are already 800x800, while the full_image are not, so we need to resize them to 800x800
+    # Note: crop image are already 800x800, while the full_image are not, so we need to resize them to 800x800
     train_ds = train_ds.map(resize_sample, num_parallel_calls=NUM_PARALLEL_CALLS,deterministic=False)
     train_ds = train_ds.map(augment_sample, num_parallel_calls=NUM_PARALLEL_CALLS, deterministic=False)
 
-    # group elems in batch
-    # drop_remainder=True: discard the last elems if they do not fill a complete batch
     train_ds = train_ds.ragged_batch(BATCH_SIZE,drop_remainder=True)
 
     # FORMAT CONVERSION:
     # the model expects a tuple format (images, bounding_boxes), not a dictionary
-    train_ds = train_ds.map(
-        dict_to_tuple,
-        num_parallel_calls=NUM_PARALLEL_CALLS,
-        deterministic=False,
-    )
+    train_ds = train_ds.map(dict_to_tuple, num_parallel_calls=NUM_PARALLEL_CALLS, deterministic=False)
 
     # Prefetch prepares data in advance while the model is training
-    # it reduces the waiting time
     train_ds = train_ds.prefetch(PREFETCH_BUFFER)
-
-    # set the dataset options to allow non-deterministic execution for better performance
-    train_options = tf.data.Options()
-    train_options.experimental_deterministic = False
-
-    train_ds = train_ds.with_options(train_options)
 
     return train_ds
 
@@ -544,9 +475,7 @@ def resize_sample(sample):
     boxes = sample["bounding_boxes"]["boxes"]
     classes = sample["bounding_boxes"]["classes"]
 
-    # resize the image to IMAGE_SIZE while preserving aspect ratio and adding letterbox padding
     image, scale_x, scale_y, pad_x, pad_y = resize_with_letterbox(image, IMAGE_SIZE)
-
     boxes = tf.cast(boxes, tf.float32)
 
     # adjust the bounding boxes according to the scaling and padding applied to the image
@@ -555,7 +484,6 @@ def resize_sample(sample):
     x_max = boxes[:, 2] * scale_x + tf.cast(pad_x, tf.float32)
     y_max = boxes[:, 3] * scale_y + tf.cast(pad_y, tf.float32)
 
-    # stack the adjusted bounding box coordinates into a single tensor
     boxes = tf.stack([x_min, y_min, x_max, y_max], axis=-1)
 
     return {
@@ -588,16 +516,9 @@ def build_val_loss_dataset(val_data):
 
 def create_inference_views(image_path):
     """
-    here we substitute the image_path with the corresponding image.
-    the image is resized to IMAGE_SIZExIMAGE_SIZE and then we create the views of the image:
-    1) if the image is not larger than IMAGE_SIZE in both dimensions:
-       only the full-image view is used;
-    2) if four native IMAGE_SIZE patches can cover the whole image:
-         use them without resize;
-    3) otherwise split the image into four quadrants covering the whole image
-         and letterbox each quadrant to IMAGE_SIZE, preserving aspect ratio.
-        
-    Returns:
+    here we substitute the image_path with the corresponding image and then we create the views of the image:
+
+    returns:
         tf.Tensor: A tensor containing the combined views of the image, each resized to IMAGE_SIZE.
     """
     image = load_image(image_path)
@@ -609,8 +530,7 @@ def create_inference_views(image_path):
 
 def build_inference_dataset(image_paths):
     """
-    Validation inference dataset.
-
+    Validation inference dataset
     For images larger than IMAGE_SIZE in both dimensions:
     - exactly 4 patch views are created;
     - native IMAGE_SIZE patches are used when they cover the whole image;
@@ -799,19 +719,13 @@ def build_inference_metadata(image_shapes):
     return all_metadata
 
 def select_inference_subset_indices(num_images, ratio=0.2):
-    num_selected = tf.cast(
-        tf.math.ceil(tf.cast(num_images, tf.float32) * ratio),
-        tf.int32
-    )
+    num_selected = math.ceil(num_images * ratio)
 
-    indices = tf.range(num_images)
+    indices = list(range(num_images))
+    random.seed(SEED)
+    random.shuffle(indices)
 
-    shuffled_indices = tf.random.experimental.stateless_shuffle(
-        indices,
-        seed=[SEED, 0]
-    )
-
-    return shuffled_indices[:num_selected]
+    return indices[:num_selected]
 
 def resize_with_letterbox(image, target_size):
     """
@@ -819,16 +733,8 @@ def resize_with_letterbox(image, target_size):
     we need to keep the scale_x and scale_y because we need to adjust the bounding boxes w.r.t. the new image size.
     and we need to keep the pad_x and pad_y because we need to adjust the bounding boxes w.r.t. the new image size.
 
-    1. Compute the scaling factor to fit the image within the target size while preserving aspect ratio.
-    2. Resize the image using the computed scaling factor.
-    3. Compute the padding needed to reach the target size.
-    4. Pad the resized image to the target size.
-    5. Return the resized and padded image along with the scaling factors and padding values.
-
     Returns:
-        tuple: (resized_image, scale_x, scale_y, pad_x, pad_y) where resized_image is the image resized to target_size with letterbox padding, 
-               scale_x and scale_y are the scaling factors applied to the original image dimensions, and pad_x and pad_y are the padding values 
-               added to the resized image to reach the target size.
+        tuple: (resized_image, scale_x, scale_y, pad_x, pad_y)
     """
 
     target_h, target_w = target_size
@@ -839,8 +745,6 @@ def resize_with_letterbox(image, target_size):
 
     # Compute the scaling factor to fit the image within the target size while preserving aspect ratio.
     scale = tf.minimum(target_w / image_width, target_h / image_height)
-
-    # Resize the image using the computed scaling factor.
     resized_size_float = tf.round(image_size * scale)
     resized_size = tf.cast(resized_size_float, tf.int32)
 
@@ -851,7 +755,6 @@ def resize_with_letterbox(image, target_size):
     # Resize the image to the new size
     image = tf.image.resize(image, resized_size)
 
-    # Compute the scaling factors and padding values for adjusting bounding boxes.
     scale_y = resized_size_float[0] / image_height
     scale_x = resized_size_float[1] / image_width
 
@@ -859,7 +762,6 @@ def resize_with_letterbox(image, target_size):
     pad_y = (target_h - resized_h) // 2
     pad_x = (target_w - resized_w) // 2
 
-    # Pad the resized image to the target size using the computed padding values.
     image = tf.image.pad_to_bounding_box(image, pad_y, pad_x, target_h, target_w)
 
     return image, scale_x, scale_y, pad_x, pad_y
@@ -881,8 +783,9 @@ def create_combined_views(image):
 
     patch_height, patch_width = IMAGE_SIZE
 
-    # Determine whether to create patches or just use the full image based on the image dimensions.
     full_image, _, _, _, _ = resize_with_letterbox(image, IMAGE_SIZE)
+
+    #this is done to add batch dimension
     full_image = tf.expand_dims(full_image, axis=0)
 
     def full_image_only():
@@ -914,10 +817,7 @@ def create_patches(image, patch_size=IMAGE_SIZE):
     if image_height <= patch_height or image_width <= patch_width:
         return tf.zeros([0, patch_height, patch_width, 3], dtype=image.dtype)
     
-    use_native_patches = (
-        image_width <= 2 * patch_width
-        and image_height <= 2 * patch_height
-    )
+    use_native_patches = (image_width <= 2 * patch_width and image_height <= 2 * patch_height)
 
     def native_patches():
         x_starts = [0, image_width - patch_width]
@@ -927,7 +827,6 @@ def create_patches(image, patch_size=IMAGE_SIZE):
 
         for y in y_starts:
             for x in x_starts:
-                # Crop the image to the specified patch size starting from (x, y).
                 patch = tf.image.crop_to_bounding_box(image, y, x, patch_height, patch_width)
                 patches.append(patch)
 
@@ -950,15 +849,13 @@ def create_patches(image, patch_size=IMAGE_SIZE):
         third_quadrant = (0, bottom, left, image_height - bottom)
         fourth_quadrant = (right, bottom, image_width - right, image_height - bottom)
 
-        # Define the four quadrants of the image based on the split coordinates.
-        # Each quadrant is represented as (x_start, y_start, width, height).
         quadrants = [first_quadrant, second_quadrant, third_quadrant, fourth_quadrant]
 
         patches = []
 
         # For each quadrant, crop the image and resize it to the patch size while preserving aspect ratio.
-        for x, y, width, height in quadrants:
-            crop = tf.image.crop_to_bounding_box(image, y, x, height, width)
+        for x_start, y_start, width, height in quadrants:
+            crop = tf.image.crop_to_bounding_box(image, y_start, x_start, height, width)
             crop, _, _, _, _ = resize_with_letterbox(crop, patch_size)
             patches.append(crop)
 
