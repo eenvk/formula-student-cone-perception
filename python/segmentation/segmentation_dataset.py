@@ -17,10 +17,10 @@ from segmentation.segmentation_config import BATCH_SIZE, BBOX_CENTER_JITTER, BBO
 
 
 def create_crop_box(box: Box, image_height: int, image_width: int, training: bool, rng: random.Random | None=None) -> tuple[int, int, int, int]:
-    '''Creates a crop around the cone starting from its GT bounding box,
+    """Creates a crop around the cone starting from its GT bounding box,
     then the box is enlarged with some padding to give to the network some context around the cone.
     During training, the crop center and padding are randomly changed to make the model less dependent
-    on perfectly centered bounding boxes.'''
+    on perfectly centered bounding boxes."""
 
     box_width = box.x_max - box.x_min
     box_height = box.y_max - box.y_min
