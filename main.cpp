@@ -84,7 +84,7 @@ int main() {
         save_detection_comparison(image, ground_truth.boxes, predicted_boxes, detection_output_path);
         save_segmentation_comparison(image, ground_truth.semantic_mask, predicted_mask, segmentation_output_path);
 
-        std::cout << image_name << " | GT boxes: " << ground_truth.boxes.size() << " | predicted boxes: " << predicted_boxes.size() << std::endl;
+        std::cout << image_name << " | GT boxes: " << ground_truth.boxes.size() << " | predicted boxes: " << predicted_boxes.size()<< " | mIoU: " << image_segmentation_report.mean_iou<< std::endl;
     }
 
     const SegmentationReport segmentation_report = segmentation_evaluator.report();
