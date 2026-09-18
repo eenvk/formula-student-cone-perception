@@ -91,10 +91,12 @@ int main() {
     const ClassificationReport classification_report = classification_evaluator.report();
     const DetectionReport detection_report = detection_evaluator.report();
 
+
     const double fps = load_fps(prediction_dir / "timing.csv");
 
     save_metrics_report(segmentation_report, classification_report, detection_report, fps, report_path);
     save_per_image_metrics(per_image_metrics, per_image_metrics_path);
+
 
     std::cout << std::endl;
     std::cout << "Evaluation completed." << std::endl;

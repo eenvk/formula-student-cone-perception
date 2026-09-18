@@ -12,6 +12,7 @@ void save_segmentation_comparison(const cv::Mat& image_bgr, const cv::Mat& gt_ma
     cv::Mat gt_overlay = create_overlay(image_bgr, gt_mask);
     cv::Mat pred_overlay = create_overlay(image_bgr, pred_mask);
 
+
     add_title(gt_overlay, "Ground truth");
     add_title(pred_overlay, "Prediction");
 
