@@ -48,6 +48,13 @@ In detection_yolo.py at line 136 there's flag variable is_train.
     if it is True then the training is done and then there will be a comparison between the new model and the old best model
         based on the validation set.
 
+In order to run the training of the segmentation part you can use:
+    python -m segmentation.train_segmentation
+    if you are in the python directory (formula-student-cone-perception/python)
+
+    PYTHONPATH=python python -m segmentation.train_segmentation
+    if you are in the root of the directory (formula-student-cone-perception)
+
 In order to run the complete pipeline on the test_set in which each image is captured one by one and after all
 we measure the metrics you just need to enters in formula-student-cone-perception/build and directory
     make

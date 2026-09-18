@@ -19,7 +19,7 @@ per_image_metrics.csv
 
 # Environments
 .env
-.envrc
+.venv_test
 .venv
 env/
 venv/
