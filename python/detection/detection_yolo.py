@@ -19,7 +19,8 @@ from detection.detection_config import (
     VALIDATION_FREQ,
     IMAGE_SIZE
 )
-
+import time
+import detection.inference as inference_utils
 from detection.data_pipeline import build_train_val_datasets
 
 from detection.model_utils import (
@@ -131,30 +132,38 @@ def main():
     model = create_model()
     print("Build model with", model.num_classes, "classes")
 
-    # TRAINING
-    callbacks = [
-        InferenceValidation(
-            val_inference_ds,
-            DETECTION_WEIGHTS_PATH,
-            val_inference_metadata,
-            inference_y_true,
-            eval_every=EVAL_EVERY
-        ),
+    is_train = True
+    history = None
 
-        tf.keras.callbacks.EarlyStopping(
-            monitor="val_box_loss",
-            mode="min",
-            patience=5,
-            restore_best_weights=False
-        ),
+    if is_train:
 
-        keras.callbacks.BackupAndRestore(backup_dir=str(PROJECT_DIR / "training_backup")),
-        keras.callbacks.TerminateOnNaN(), #stop training if NaN values are found
-    ]
+        # TRAINING
+        callbacks = [
+            InferenceValidation(
+                val_inference_ds,
+                DETECTION_WEIGHTS_PATH,
+                val_inference_metadata,
+                inference_y_true,
+                eval_every=EVAL_EVERY
+            ),
 
-    history = model.fit(train_ds, validation_data=val_loss_ds,
-                        epochs=EPOCHS, callbacks=callbacks, validation_freq=VALIDATION_FREQ)
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_box_loss",
+                mode="min",
+                patience=5,
+                restore_best_weights=False
+            ),
 
+            keras.callbacks.BackupAndRestore(backup_dir=str(PROJECT_DIR / "training_backup")),
+            keras.callbacks.TerminateOnNaN(), #stop training if NaN values are found
+        ]
+
+        history = model.fit(train_ds, validation_data=val_loss_ds,
+                            epochs=EPOCHS, callbacks=callbacks, validation_freq=VALIDATION_FREQ)
+
+    # test function is used to test different hyperparams, now i comment it out becasuse
+    # this search is already done, and it has inside only the last test that i did
+    # test(full_val_inference_ds, full_val_inference_metadata, full_inference_y_true, model)
     print("\n\nFINAL VALIDATION ON THE COMPLETE VALIDATION SET")
 
     print("Loading best detection weights")
@@ -192,6 +201,76 @@ def main():
 
 
     return history
+
+def test(full_val_inference_ds, full_val_inference_metadata, full_inference_y_true, model):
+    # default values were my initial guess, while tuned_03 has the params values that I found
+    # testing each params indipendently. So here I tested if all togethey they work better.
+    configurations = [
+        {
+            "name": "tuned_03",
+            "nms_iou": 0.30,
+            "containment": 0.60,
+            "cross_containment": 0.80,
+        },
+        {
+            "name": "default values",
+            "nms_iou": 0.50,
+            "containment": 0.80,
+            "cross_containment": 0.90,
+        },
+    ]
+
+
+    results = []
+    print("Loading best detection weights")
+    model.load_weights(DETECTION_WEIGHTS_PATH)
+    print("Updated model with best detection weights")
+
+    for config in configurations:
+        print("\n" + "=" * 70)
+        print(f"Testing configuration: {config['name']}")
+        print("=" * 70)
+
+        inference_utils.GLOBAL_NMS_IOU_THRESHOLD = config["nms_iou"]
+        inference_utils.GLOBAL_CONTAINMENT_THRESHOLD = config["containment"]
+        inference_utils.GLOBAL_CROSS_CONTAINMENT_THRESHOLD = config["cross_containment"]
+
+        validation = InferenceValidation(
+            full_val_inference_ds,
+            DETECTION_WEIGHTS_PATH,
+            full_val_inference_metadata,
+            full_inference_y_true
+        )
+
+        validation.set_model(model)
+
+        start_time = time.perf_counter()
+
+        detection_report, classification_report = validation.evaluate()
+
+        elapsed_seconds = time.perf_counter() - start_time
+
+        result = {
+            "name": config["name"],
+            "mAP": detection_report["mAP@0.5:0.95"],
+            "macro_f1": classification_report["macro_f1"],
+            "seconds": elapsed_seconds,
+            "precision_per_class": classification_report["precision_per_class"],
+            "recall_per_class": classification_report["recall_per_class"],
+            "f1_per_class": classification_report["f1_per_class"],
+        }
+
+        results.append(result)
+
+        print(f"\nmAP@0.5:0.95: {result['mAP']:.4f}")
+        print(f"Macro F1: {result['macro_f1']:.4f}")
+        print(f"Time: {result['seconds']:.3f} s")
+
+        for class_name in result["f1_per_class"]:
+            print(f"\nClass: {class_name}")
+            print(f"\tPrecision: {result['precision_per_class'][class_name]:.4f}")
+            print(f"\tRecall: {result['recall_per_class'][class_name]:.4f}")
+            print(f"\tF1: {result['f1_per_class'][class_name]:.4f}")
 
 
 if __name__ == "__main__":
