@@ -1,4 +1,4 @@
-#
+#Novkovic
 
 """Run the optimized frame by frame yolo and u-net inference pipeline and export predictions for the c++ application"""
 
@@ -47,7 +47,7 @@ def find_images(image_dir):
 
 
 def prepare_output_directory(output_dir):
-    """Create output directories and remove old prediction masks"""
+    """create output directories and remove old prediction masks"""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mask_dir = output_dir / "masks"
@@ -60,7 +60,7 @@ def prepare_output_directory(output_dir):
 
 
 def load_models():
-    """Build yolo and unet and load their trained weights"""
+    """build yolo and unet and load their trained weights"""
     if not DETECTION_WEIGHTS_PATH.is_file():
         raise FileNotFoundError(f"YOLO weights not found: {DETECTION_WEIGHTS_PATH}")
 
@@ -79,7 +79,7 @@ def load_models():
 
 
 def save_detections(image_paths, all_predicted_boxes, output_path):
-    """Save yolo predictions in a csv file readable by c++"""
+    """save yolo predictions in a csv file readable by c++"""
     with output_path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(["image_name", "x_min", "y_min", "x_max", "y_max", "class_id", "score"])
@@ -93,7 +93,7 @@ def save_detections(image_paths, all_predicted_boxes, output_path):
 
 
 def save_prediction_mask(image_path, image_bgr, predicted_mask, mask_dir):
-    """Validate and save one semantic prediction mask"""
+    """validate and save one semantic prediction mask"""
 
     predicted_mask = np.asarray(predicted_mask)
 

@@ -1,6 +1,6 @@
 #Novkovic
 
-"""U-Net inference and semantic mask reconstruction."""
+"""unet inference and semantic mask reconstruction"""
 
 import time
 
@@ -18,7 +18,7 @@ UNET_BATCH_SIZE = 16
 
 
 def prepare_segmentation_inputs(image_bgr, boxes):
-    """Create U-Net crops from YOLO bounding boxes."""
+    """Create unet crops from yolo bounding boxes"""
     image_height, image_width = image_bgr.shape[:2]
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
@@ -26,19 +26,19 @@ def prepare_segmentation_inputs(image_bgr, boxes):
     roi_metadata = []
 
     for box in boxes:
-        # Enlarge the YOLO box to include some context around the cone.
+        #enlarge yolo box to include some context around the cone
         x_min, y_min, x_max, y_max = create_crop_box(box, image_height, image_width, training=False)
 
         image_crop = image_rgb[y_min:y_max, x_min:x_max]
 
-        # Resize the crop to the U-Net input size while preserving its aspect ratio.
+        #resize the crop to the unet input size,  preserving ratio
         image_crop, _, letterbox_metadata = letterbox_sample(image_crop)
 
         image_crop = image_crop.astype(np.float32) / 255.0
 
         model_inputs.append(image_crop)
 
-        # Store the information needed to map the predicted mask back to the original image.
+        #store information needed to map the predicted mask back to the original image
         roi_metadata.append((box, x_min, y_min, x_max, y_max, letterbox_metadata))
 
     return np.stack(model_inputs), roi_metadata
@@ -47,11 +47,14 @@ def prepare_segmentation_inputs(image_bgr, boxes):
 
 
 def create_unet_inference(model):
-    """Create the optimized U-Net inference function with a fixed batch size."""
+    """create the optimized unet inference function with a fixed batch size"""
 
     @tf.function(input_signature=[tf.TensorSpec(shape=(UNET_BATCH_SIZE, INPUT_HEIGHT, INPUT_WIDTH, INPUT_CHANNELS), dtype=tf.float32)])
     def graph_predict(inputs):
         return model(inputs, training=False)
+    """unet inference is wrapped with tf.function, so tensorflow builds and reuses an optimized computation graph 
+    instead of executing operations eagerly. A fixed batch size of 16 is used padding the last batch when necessary. 
+    This reduces runtime overhead especially on gpu"""
 
     def infer(inputs):
         outputs = []
@@ -61,7 +64,7 @@ def create_unet_inference(model):
 
             real_batch_size = len(batch)
 
-            # Pad the batch to keep a fixed input shape.
+            #pad the batch to keep a fixed input shape
             if real_batch_size < UNET_BATCH_SIZE:
                 padding_size = UNET_BATCH_SIZE - real_batch_size
                 padding = np.zeros((padding_size, *batch.shape[1:]), dtype=batch.dtype)
@@ -69,7 +72,7 @@ def create_unet_inference(model):
 
             batch_predictions = graph_predict(batch).numpy()
 
-            # Keep only predictions corresponding to real cone crops.
+            #keep only predictions corresponding to real cone crops
             outputs.append(batch_predictions[:real_batch_size])
 
         return np.concatenate(outputs, axis=0)
@@ -77,12 +80,12 @@ def create_unet_inference(model):
     return infer
 
 def predict_segmentation(image_bgr, boxes, unet_infer):
-    """Create the semantic segmentation mask from YOLO detections."""
+    """create the semantic segmentation mask from yolo detections"""
     timings = {"segmentation_preprocess": 0.0, "unet_inference": 0.0, "segmentation_postprocess": 0.0}
 
     image_height, image_width = image_bgr.shape[:2]
 
-    # Start with an image containing only background pixels.
+    #start with an image containing only background pixels
     semantic_mask = np.full((image_height, image_width), BACKGROUND_ID, dtype=np.uint8)
 
     if not boxes:
@@ -90,21 +93,21 @@ def predict_segmentation(image_bgr, boxes, unet_infer):
 
     start_time = time.perf_counter()
 
-    # Prepare one U-Net crop for each YOLO detection.
+    #pepare one unet crop for each yolo detection.
     model_inputs, roi_metadata = prepare_segmentation_inputs(image_bgr, boxes)
 
     timings["segmentation_preprocess"] = elapsed_ms(start_time)
 
     start_time = time.perf_counter()
 
-    # Predict a binary cone mask for every detected ROI.
+    #predict a binary cone mask for every detected roi
     predictions = unet_infer(model_inputs)
 
     timings["unet_inference"] = elapsed_ms(start_time)
 
     start_time = time.perf_counter()
 
-    # Store the YOLO confidence assigned to each pixel to resolve overlapping detections.
+    #store yolo confidence assigned to each pixel to resolve overlapping detections
     score_mask = np.full((image_height, image_width), -1.0, dtype=np.float32)
 
     for prediction, metadata in zip(predictions, roi_metadata):
@@ -114,16 +117,16 @@ def predict_segmentation(image_bgr, boxes, unet_infer):
 
         probability_map = prediction[:, :, 0]
 
-        # Remove the padding previously added.
+        #remove the padding previously added
         probability_map = probability_map[top_padding:top_padding + resized_height, left_padding:left_padding + resized_width]
 
         roi_width = x_max - x_min
         roi_height = y_max - y_min
 
-        # Restore the predicted mask to the original ROI size.
+        #restore predicted mask to the original roi sizw
         probability_map = cv2.resize(probability_map, (roi_width, roi_height), interpolation=cv2.INTER_LINEAR)
 
-        # Convert U-Net probabilities into a binary cone/background mask.
+        #convert unet probabilities into a binary cone/background mask
         binary_mask = probability_map >= MASK_THRESHOLD
 
         detection_score = box.score if box.score is not None else 1.0
@@ -131,10 +134,10 @@ def predict_segmentation(image_bgr, boxes, unet_infer):
         semantic_region = semantic_mask[y_min:y_max, x_min:x_max]
         score_region = score_mask[y_min:y_max, x_min:x_max]
 
-        # In overlapping regions, keep the class from the detection with higher confidence.
+        #in overlapping regions keep the class from the detection with higher confidence
         update_pixels = binary_mask & (detection_score > score_region)
 
-        # U-Net determines the cone pixels, while YOLO provides their semantic class.
+        #unet determines the cone pixels, while yolo provides their semantic class
         semantic_region[update_pixels] = box.class_id
         score_region[update_pixels] = detection_score
 
