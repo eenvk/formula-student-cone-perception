@@ -12,7 +12,7 @@ from segmentation.segmentation_config import MASK_THRESHOLD
 from segmentation.segmentation_dataset import create_crop_box, letterbox_sample
 
 
-UNET_MAX_BATCH_SIZE = 32
+UNET_BATCH_SIZE = 16
 
 def prepare_segmentation_inputs(image_bgr, boxes):
     """Create unet crops from yolo bounding boxes"""
@@ -42,17 +42,24 @@ def prepare_segmentation_inputs(image_bgr, boxes):
 
 
 def create_unet_inference(model):
-    """Create the optimized unet inference function"""
+    """Create the optimized U-Net inference function."""
 
     def infer(inputs):
-
         outputs = []
 
-        #process cone crops in batches to limit memory usage
-        for start_index in range(0, len(inputs), UNET_MAX_BATCH_SIZE):
-            batch = inputs[start_index:start_index + UNET_MAX_BATCH_SIZE]
-            batch_predictions = model(batch,training=False).numpy()
-            outputs.append(batch_predictions)
+        for start_index in range(0, len(inputs), UNET_BATCH_SIZE):
+            batch = inputs[start_index:start_index + UNET_BATCH_SIZE]
+
+            real_batch_size = len(batch)
+
+            if real_batch_size < UNET_BATCH_SIZE:
+                padding_size = UNET_BATCH_SIZE - real_batch_size
+                padding = np.zeros((padding_size, *batch.shape[1:]), dtype=batch.dtype)
+                batch = np.concatenate([batch, padding], axis=0)
+
+            batch_predictions = model(batch, training=False).numpy()
+
+            outputs.append(batch_predictions[:real_batch_size])
 
         return np.concatenate(outputs, axis=0)
 
