@@ -37,6 +37,7 @@ NUM_CLASSES = len(CLASS_MAPPING)
 DETECTION_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = DETECTION_DIR.parent.parent
 DETECTION_WEIGHTS_PATH = PROJECT_DIR / "models" / "best_yolov8.weights.h5"
+DETECTION_CANDIDATE_WEIGHTS_PATH = PROJECT_DIR / "models" / "candidate_yolov8.weights.h5"
 
 # Inference
 PATCH_BATCH_SIZE = 8

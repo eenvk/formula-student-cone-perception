@@ -13,6 +13,7 @@ from matplotlib.patches import Rectangle
 from detection.detection_config import (
     PROJECT_DIR,
     DETECTION_WEIGHTS_PATH,
+    DETECTION_CANDIDATE_WEIGHTS_PATH,
     EPOCHS,
     EVAL_EVERY,
     SEED,
@@ -132,7 +133,7 @@ def main():
     model = create_model()
     print("Build model with", model.num_classes, "classes")
 
-    is_train = True
+    is_train = False
     history = None
 
     if is_train:
@@ -141,7 +142,7 @@ def main():
         callbacks = [
             InferenceValidation(
                 val_inference_ds,
-                DETECTION_WEIGHTS_PATH,
+                DETECTION_CANDIDATE_WEIGHTS_PATH,
                 val_inference_metadata,
                 inference_y_true,
                 eval_every=EVAL_EVERY
@@ -162,23 +163,49 @@ def main():
                             epochs=EPOCHS, callbacks=callbacks, validation_freq=VALIDATION_FREQ)
 
     # test function is used to test different hyperparams, now i comment it out becasuse
-    # this search is already done, and it has inside only the last test that i did
+    # this search is already done, and it has inside only the last test that is about two different configurations
     # test(full_val_inference_ds, full_val_inference_metadata, full_inference_y_true, model)
+    
     print("\n\nFINAL VALIDATION ON THE COMPLETE VALIDATION SET")
 
-    print("Loading best detection weights")
-    model.load_weights(DETECTION_WEIGHTS_PATH)
-    print("Updated model with best detection weights")
+    if is_train:
+        print("Current best model evaluation")
 
-    final_validation = InferenceValidation(
-        full_val_inference_ds,
-        DETECTION_WEIGHTS_PATH,
-        full_val_inference_metadata,
-        full_inference_y_true
-    )
+        best_detection_report, best_classification_report = evaluate_weights(model, DETECTION_WEIGHTS_PATH,full_val_inference_ds,
+                                                                             full_val_inference_metadata, full_inference_y_true)
 
-    final_validation.set_model(model)
-    detection_report, classification_report = final_validation.evaluate()
+        print("Candidate model evaluation")
+
+        candidate_detection_report, candidate_classification_report = evaluate_weights(model, DETECTION_CANDIDATE_WEIGHTS_PATH, full_val_inference_ds,
+                                                                                       full_val_inference_metadata, full_inference_y_true)
+
+        best_map = best_detection_report["mAP@0.5:0.95"]
+        candidate_map = candidate_detection_report["mAP@0.5:0.95"]
+
+        best_f1 = best_classification_report["macro_f1"]
+        candidate_f1 = candidate_classification_report["macro_f1"]
+
+        print("MODEL COMPARISON")
+
+        print(f"Current best - mAP: {best_map:.4f}, Macro F1: {best_f1:.4f}")
+        print(f"New candidate - mAP: {candidate_map:.4f}, Macro F1: {candidate_f1:.4f}")
+
+        if candidate_map > best_map:
+            print("\nThe candidate model has a higher mAP, so i substitute the current best model")
+            detection_report = candidate_detection_report
+            classification_report = candidate_classification_report
+            os.replace(DETECTION_CANDIDATE_WEIGHTS_PATH, DETECTION_WEIGHTS_PATH)
+
+
+        else:
+            print("\nThe current model still has a higher or equal mAP.")
+            detection_report = best_detection_report
+            classification_report = best_classification_report
+
+
+    else:
+        detection_report, classification_report = evaluate_weights(model, DETECTION_WEIGHTS_PATH, full_val_inference_ds,
+                                                                   full_val_inference_metadata, full_inference_y_true)
 
     class_names = detection_report["AP@0.5:0.95_per_class"].keys()
 
@@ -201,6 +228,20 @@ def main():
 
 
     return history
+
+def evaluate_weights(model, weights_path, full_val_inference_ds, full_val_inference_metadata, full_inference_y_true):
+    print(f"\nLoading weights: {weights_path}")
+    model.load_weights(weights_path)
+
+    validation = InferenceValidation(
+        full_val_inference_ds,
+        weights_path,
+        full_val_inference_metadata,
+        full_inference_y_true
+    )
+
+    validation.set_model(model)
+    return validation.evaluate()
 
 def test(full_val_inference_ds, full_val_inference_metadata, full_inference_y_true, model):
     # default values were my initial guess, while tuned_03 has the params values that I found
