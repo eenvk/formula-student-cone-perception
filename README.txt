@@ -37,6 +37,16 @@ dataset/
         ├── ann/
         └── img/
 
+
+WEIGHTS
+
+Download the weights from the drive link https://drive.google.com/drive/folders/14qaVGPuppK3fdYRtSFXKEkpppqnZUc0W?usp=sharing  and place them in the following way:
+
+models/
+      ├── best_yolov8.weights.h5
+      └── unet_best.weights.h5
+
+
 In order to run the trainining of the detection part you can use:
     python -m detection.detection_yolo
     if you are in the python directory (formula-student-cone-perception/python)
