@@ -49,10 +49,10 @@ models/
 
 In order to run the trainining of the detection part you can use:
     python -m detection.detection_yolo
-    if you are in the python directory (formula-student-cone-perception/python)
+    if you are in the python directory (project directory/python)
 
     PYTHONPATH=python python -m detection.detection_yolo
-    if you are in the root of the directory (formula-student-cone-perception)
+    if you are in the root of the directory (project directory)
 In detection_yolo.py at line 136 there's flag variable is_train.
     if it is False then the training is skip and it's performed the validation directly.
     if it is True then the training is done and then there will be a comparison between the new model and the old best model
@@ -60,15 +60,21 @@ In detection_yolo.py at line 136 there's flag variable is_train.
 
 In order to run the training of the segmentation part you can use:
     python -m segmentation.train_segmentation
-    if you are in the python directory (formula-student-cone-perception/python)
+    if you are in the python directory (project directory/python)
 
     PYTHONPATH=python python -m segmentation.train_segmentation
-    if you are in the root of the directory (formula-student-cone-perception)
+    if you are in the root of the directory
 
-In order to run the complete pipeline on the test_set in which each image is captured one by one and after all
-we measure the metrics you just need to enters in formula-student-cone-perception/build and directory
-    make
-    ./main
+
+RUNNING THE COMPLETE PIPELINE
+From the project root directory:
+
+mkdir build
+cd build
+cmake ..
+make
+./main
+
 
 It will generate a directory called "evaluation" that will contain every test image with classification, detection and
 segmentation. Also there will be the score metrics.
